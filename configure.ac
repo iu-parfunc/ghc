@@ -948,6 +948,36 @@ else
 fi
 AC_SUBST(HavePapi)
 
+dnl large address space support (see includes/rts/storage/MBlock.h)
+dnl Windows has VirtualAlloc MEM_RESERVE/MEM_COMMIT
+dnl Darwin has vm_allocate/vm_protect
+dnl Linux has mmap(MAP_NORESERVE)/madv(MADV_DONTNEED)
+dnl FreeBSD, Solaris and maybe other have MAP_NORESERVE/MADV_FREE
+dnl (They also have MADV_DONTNEED, but it means something else!)
+use_large_address_space=no
+if test "$ac_cv_sizeof_void_p" -eq 8 ; then
+   if test "$ghc_host_os" = "mingw32" ||
+      test "$ghc_host_os" = "darwin" ; then
+           use_large_address_space=yes
+   else
+      AC_CHECK_DECLS([MAP_NORESERVE, MADV_FREE, MADV_DONTNEED],[],[],
+[
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+])
+      if test "$ac_cv_have_decl_MAP_NORESERVE" = "yes" &&
+         test "$ac_cv_have_decl_MADV_FREE" = "yes" ||
+         test "$ac_cv_have_decl_MADV_DONTNEED" = "yes" ; then
+              use_large_address_space=yes
+      fi
+   fi
+fi
+if test "$use_large_address_space" = "yes" ; then
+   AC_DEFINE([USE_LARGE_ADDRESS_SPACE], [1], [Enable single heap address space support])
+fi
+
 if test "$HAVE_DOCBOOK_XSL" = "NO" ||
    test "$XsltprocCmd" = ""
 then

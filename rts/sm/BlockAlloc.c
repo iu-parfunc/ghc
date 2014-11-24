@@ -740,7 +740,14 @@ void returnMemoryToOS(nat n /* megablocks */)
     }
     free_mblock_list = bd;
 
-    osReleaseFreeMemory();
+    // Ask the OS to release any address space portion
+    // that was associated with the just released MBlocks
+    //
+    // Historically, we used to ask the OS directly (via
+    // osReleaseFreeMemory()) - now the MBlock layer might
+    // have a reason to preserve the address space range,
+    // so we keep it
+    releaseFreeMemory();
 
     IF_DEBUG(gc,
         if (n != 0) {
@@ -873,11 +880,12 @@ void
 reportUnmarkedBlocks (void)
 {
     void *mblock;
+    void *state;
     bdescr *bd;
 
     debugBelch("Unreachable blocks:\n");
-    for (mblock = getFirstMBlock(); mblock != NULL;
-         mblock = getNextMBlock(mblock)) {
+    for (mblock = getFirstMBlock(&state); mblock != NULL;
+         mblock = getNextMBlock(&state, mblock)) {
         for (bd = FIRST_BDESCR(mblock); bd <= LAST_BDESCR(mblock); ) {
             if (!(bd->flags & BF_KNOWN) && bd->free != (P_)-1) {
                 debugBelch("  %p\n",bd);

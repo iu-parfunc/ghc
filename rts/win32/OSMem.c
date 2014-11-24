@@ -10,6 +10,7 @@
 
 #include "Rts.h"
 #include "sm/OSMem.h"
+#include "sm/HeapAlloc.h"
 #include "RtsUtils.h"
 
 #if HAVE_WINDOWS_H
@@ -30,7 +31,11 @@ typedef struct block_rec_ {
 
 /* allocs are kept in ascending order, and are the memory regions as
    returned by the OS as we need to have matching VirtualAlloc and
-   VirtualFree calls. */
+   VirtualFree calls.
+
+   If USE_LARGE_ADDRESS_SPACE is defined, this list will contain only
+   one element.
+*/
 static alloc_rec* allocs = NULL;
 
 /* free_blocks are kept in ascending order, and adjacent blocks are merged */
@@ -209,12 +214,9 @@ osGetMBlocks(nat n) {
     return ret;
 }
 
-void osFreeMBlocks(char *addr, nat n)
+static void decommitBlocks(char *addr, W_ nBytes)
 {
     alloc_rec *p;
-    W_ nBytes = (W_)n * MBLOCK_SIZE;
-
-    insertFree(addr, nBytes);
 
     p = allocs;
     while ((p != NULL) && (addr >= (p->base + p->size))) {
@@ -243,6 +245,14 @@ void osFreeMBlocks(char *addr, nat n)
             p = p->next;
         }
     }
+}
+
+void osFreeMBlocks(char *addr, nat n)
+{
+    W_ nBytes = (W_)n * MBLOCK_SIZE;
+
+    insertFree(addr, nBytes);
+    decommitBlocks(addr, nBytes);
 }
 
 void osReleaseFreeMemory(void)
@@ -416,3 +426,58 @@ void setExecutable (void *p, W_ len, rtsBool exec)
         stg_exit(EXIT_FAILURE);
     }
 }
+
+#ifdef USE_LARGE_ADDRESS_SPACE
+
+void *osReserveHeapMemory (void)
+{
+    alloc_rec *rec;
+    void *base, *top;
+    void *start, *end;
+
+    // allocNew() already takes care of adding 1 extra MB
+    // for alignment
+    rec = allocNew(MBLOCK_SPACE_SIZE / MBLOCK_SIZE);
+    base = rec->base;
+    top = (void*)((W_)base + MBLOCK_SPACE_SIZE + MBLOCK_SIZE);
+
+    if (((W_)base & MBLOCK_MASK) != 0) {
+        start = MBLOCK_ROUND_UP(base);
+        end = MBLOCK_ROUND_DOWN(top);
+        ASSERT(((W_)end - (W_)start) == MBLOCK_SPACE_SIZE);
+
+        // VirtualFree MEM_RELEASE must always match a
+        // previous MEM_RESERVE call, in address and size
+        // so we necessarily leak some address space here,
+        // before and after the aligned area
+        // It is not a huge problem because we never commit
+        // that memory
+        (void)end;
+    } else {
+        start = base;
+    }
+
+    return start;
+}
+
+void osCommitMemory (void *at, W_ size)
+{
+    commitBlocks(at, size);
+}
+
+void osDecommitMemory (void *at, W_ size)
+{
+    decommitBlocks(at, size);
+}
+
+void osReleaseHeapMemory (void)
+{
+    // On windows, releasing all the heap is equivalent
+    // to freeing all blocks (unlike on posix, where the
+    // latter would attempt to unmap each and every mblock
+    // individually)
+
+    osFreeAllMBlocks();
+}
+
+#endif
