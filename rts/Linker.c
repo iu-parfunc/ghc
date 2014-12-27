@@ -1294,6 +1294,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_MUT_VAR_CLEAN_info)                             \
       SymI_HasProto(stg_MUT_VAR_DIRTY_info)                             \
       SymI_HasProto(stg_WEAK_info)                                      \
+      SymI_HasProto(stg_NFDATA_STRUCT_info)                             \
       SymI_HasProto(stg_ap_v_info)                                      \
       SymI_HasProto(stg_ap_f_info)                                      \
       SymI_HasProto(stg_ap_d_info)                                      \
