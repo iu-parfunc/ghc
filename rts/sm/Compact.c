@@ -469,6 +469,7 @@ update_fwd_large( bdescr *bd )
     switch (info->type) {
 
     case ARR_WORDS:
+    case NFDATA_STRUCT:
       // nothing to follow
       continue;
 

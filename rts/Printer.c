@@ -395,6 +395,12 @@ printClosure( StgClosure *obj )
       break;
 #endif
 
+    case NFDATA_STRUCT:
+        debugBelch("NFDATA_STRUCT(size=%" FMT_Word ")\n",
+                   (W_)((StgNFDataStruct *)obj)->n_blocks * BLOCK_SIZE);
+        break;
+
+
     default:
             //barf("printClosure %d",get_itbl(obj)->type);
             debugBelch("*** printClosure: unknown type %d ****\n",

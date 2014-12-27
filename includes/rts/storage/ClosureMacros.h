@@ -338,6 +338,10 @@ EXTERN_INLINE StgWord bco_sizeW ( StgBCO *bco );
 EXTERN_INLINE StgWord bco_sizeW ( StgBCO *bco )
 { return bco->size; }
 
+EXTERN_INLINE StgWord nfdata_struct_sizeW ( StgNFDataStruct *str );
+EXTERN_INLINE StgWord nfdata_struct_sizeW ( StgNFDataStruct *str )
+{ return str->n_blocks * BLOCK_SIZE / sizeof(StgWord); }
+
 /*
  * TODO: Consider to switch return type from 'nat' to 'StgWord' #8742
  *
@@ -400,6 +404,8 @@ closure_sizeW_ (StgClosure *p, StgInfoTable *info)
         return bco_sizeW((StgBCO *)p);
     case TREC_CHUNK:
         return sizeofW(StgTRecChunk);
+    case NFDATA_STRUCT:
+        return nfdata_struct_sizeW((StgNFDataStruct*)p);
     default:
         return sizeW_fromITBL(info);
     }

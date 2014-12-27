@@ -424,6 +424,16 @@ checkClosure( StgClosure* p )
         return sizeofW(StgTRecChunk);
       }
 
+    case NFDATA_STRUCT:
+      {
+        StgNFDataStruct *str = (StgNFDataStruct *)p;
+
+        ASSERT(str->n_blocks > 0);
+        ASSERT((W_)(str->free) >= (W_)str + sizeof(StgNFDataStruct));
+        ASSERT((W_)(str->free) <= (W_)str + str->n_blocks * BLOCK_SIZE);
+        return nfdata_struct_sizeW(str);
+      }
+
     default:
             barf("checkClosure (closure type %d)", info->type);
     }
