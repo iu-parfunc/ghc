@@ -428,7 +428,8 @@ typedef struct MessageBlackHole_ {
 
 typedef struct StgNFDataStruct_ {
     StgHeader   header;
-    StgWord     n_blocks;
+    StgWord     allocatedW;
+    StgClosure *root;
     StgPtr      free;
 } StgNFDataStruct;
 

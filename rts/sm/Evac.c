@@ -25,6 +25,7 @@
 #include "Prelude.h"
 #include "Trace.h"
 #include "LdvProfile.h"
+#include "Struct.h"
 
 #if defined(PROF_SPIN) && defined(THREADED_RTS) && defined(PARALLEL_GC)
 StgWord64 whitehole_spin = 0;
@@ -305,11 +306,11 @@ evacuate_large(StgPtr p)
   bd->flags |= BF_EVACUATED;
   initBdescr(bd, new_gen, new_gen->to);
 
-  // If this is a block of pinned objects, we don't have to scan
-  // these objects, because they aren't allowed to contain any
+  // If this is a block of pinned or struct objects, we don't have to scan
+  // these objects, because they aren't allowed to contain any outgoing
   // pointers.  For these blocks, we skip the scavenge stage and put
   // them straight on the scavenged_large_objects list.
-  if (bd->flags & BF_PINNED) {
+  if (bd->flags & (BF_PINNED | BF_STRUCT)) {
       ASSERT(get_itbl((StgClosure *)p)->type == ARR_WORDS);
       if (new_gen != gen) { ACQUIRE_SPIN_LOCK(&new_gen->sync); }
       dbl_link_onto(bd, &new_gen->scavenged_large_objects);
@@ -321,6 +322,53 @@ evacuate_large(StgPtr p)
   }
 
   RELEASE_SPIN_LOCK(&gen->sync);
+}
+
+/* ----------------------------------------------------------------------------
+   Evacuate an object inside a NFDataStruct
+
+   Don't actually evacuate the object. Instead, evacuate the structure
+   (which is a large object, so it is just relinked onto the new list
+   of large objects of the generation).
+
+   It is assumed that objects in the struct live in the same generation
+   as the struct itself all the time.
+   ------------------------------------------------------------------------- */
+STATIC_INLINE void
+evacuate_struct (StgPtr p)
+{
+    StgNFDataStruct *str;
+    bdescr *bd;
+    nat gen_no;
+
+    str = objectGetStruct((StgClosure*)p);
+
+    bd = Bdescr((StgPtr)str);
+    gen_no = bd->gen_no;
+
+    // already evacuated? (evacuate_large does the same check,
+    // but we avoid taking the spin-lock)
+    if (bd->flags & BF_EVACUATED) {
+        /* Don't forget to set the gct->failed_to_evac flag if we didn't get
+         * the desired destination (see comments in evacuate()).
+         */
+        if (gen_no < gct->evac_gen_no) {
+            gct->failed_to_evac = rtsTrue;
+            TICK_GC_FAILED_PROMOTION();
+        }
+        return;
+    }
+
+    evacuate_large((StgPtr)str);
+
+    // Note: the object did not move in memory, because it lives
+    // in pinned (BF_STRUCT) allocation, so we do not need to rewrite it
+    // or muck with forwarding pointers
+    // Also there is no tag to worry about on the struct (tags are used
+    // for constructors and functions, but a struct is neither). There
+    // might be a tag on the object pointer, but again we don't change
+    // the pointer because we don't move the object so we don't need to
+    // rewrite the tag.
 }
 
 /* ----------------------------------------------------------------------------
@@ -479,6 +527,15 @@ loop:
   }
 
   bd = Bdescr((P_)q);
+
+  // Check for struct before checking for large, this allows doing the
+  // right thing for objects that are half way in the middle of the first
+  // block of a struct (and would be treated as large objects even though
+  // they are not)
+  if ((bd->flags & BF_STRUCT) != 0) {
+      evacuate_struct((P_)q);
+      return;
+  }
 
   if ((bd->flags & (BF_LARGE | BF_MARKED | BF_EVACUATED)) != 0) {
 
