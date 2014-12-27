@@ -340,7 +340,7 @@ EXTERN_INLINE StgWord bco_sizeW ( StgBCO *bco )
 
 EXTERN_INLINE StgWord nfdata_struct_sizeW ( StgNFDataStruct *str );
 EXTERN_INLINE StgWord nfdata_struct_sizeW ( StgNFDataStruct *str )
-{ return str->n_blocks * BLOCK_SIZE / sizeof(StgWord); }
+{ return str->allocatedW; }
 
 /*
  * TODO: Consider to switch return type from 'nat' to 'StgWord' #8742

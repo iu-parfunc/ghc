@@ -428,9 +428,9 @@ checkClosure( StgClosure* p )
       {
         StgNFDataStruct *str = (StgNFDataStruct *)p;
 
-        ASSERT(str->n_blocks > 0);
-        ASSERT((W_)(str->free) >= (W_)str + sizeof(StgNFDataStruct));
-        ASSERT((W_)(str->free) <= (W_)str + str->n_blocks * BLOCK_SIZE);
+        ASSERT(str->allocatedW > 0);
+        ASSERT(str->free >= (StgPtr)str + sizeofW(StgNFDataStruct));
+        ASSERT(str->free <= (StgPtr)str + str->allocatedW);
         return nfdata_struct_sizeW(str);
       }
 
