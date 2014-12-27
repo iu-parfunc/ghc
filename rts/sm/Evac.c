@@ -757,6 +757,12 @@ loop:
       copy(p,info,q,sizeofW(StgTRecChunk),gen_no);
       return;
 
+  case NFDATA_STRUCT:
+      // NFDataStruct objects are at least one block plus the header
+      // so they are larger than the large_object_threshold (80% of
+      // block size) and never copied by value
+      barf("evacuate: nfdata structure is not large");
+      return;
   default:
     barf("evacuate: strange closure type %d", (int)(INFO_PTR_TO_STRUCT(info)->type));
   }

@@ -1072,6 +1072,11 @@ heapCensusChain( Census *census, bdescr *bd )
                 size = sizeofW(StgTRecChunk);
                 break;
 
+            case NFDATA_STRUCT:
+                prim = rtsTrue;
+                size = nfdata_struct_sizeW((StgNFDataStruct*)p);
+                break;
+
             default:
                 barf("heapCensus, unknown object: %d", info->type);
             }

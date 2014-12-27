@@ -80,6 +80,7 @@ processHeapClosureForDead( StgClosure *c )
     case PRIM:
     case MUT_PRIM:
     case TREC_CHUNK:
+    case NFDATA_STRUCT:
         return size;
 
         /*

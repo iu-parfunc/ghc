@@ -426,4 +426,10 @@ typedef struct MessageBlackHole_ {
     StgClosure *bh;
 } MessageBlackHole;
 
+typedef struct StgNFDataStruct_ {
+    StgHeader   header;
+    StgWord     n_blocks;
+    StgPtr      free;
+} StgNFDataStruct;
+
 #endif /* RTS_STORAGE_CLOSURES_H */
