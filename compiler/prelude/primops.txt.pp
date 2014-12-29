@@ -2392,7 +2392,8 @@ primop  StructAppendOp "structAppend#" GenPrimOp
    out_of_line      = True
 
 primop  StructResizeOp "structResize#" GenPrimOp
-   Struct# -> Word# -> State# RealWorld -> (# State# RealWorld, Struct# #)
+   Struct# -> a -> Word# -> State# RealWorld ->
+   (# State# RealWorld, Struct#, Addr# #)
    with
    has_side_effects = True
    out_of_line      = True

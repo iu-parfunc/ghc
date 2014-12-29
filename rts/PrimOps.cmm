@@ -1916,11 +1916,12 @@ stg_structAppendzh ( P_ str, P_ val )
     return (root);
 }
 
-stg_structResizzezh ( P_ str, W_ new_size )
+stg_structResizzezh ( P_ str, P_ oldRoot, W_ new_size )
 {
-    P_ new_str;
+    P_ new_str, new_root;
     ("ptr" new_str) = ccall structResize(MyCapability() "ptr", str "ptr", new_size);
-    return (new_str);
+    new_root = oldRoot - str + new_str;
+    return (new_str, new_root);
 }
 
 /* -----------------------------------------------------------------------------
