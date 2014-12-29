@@ -16,13 +16,13 @@
 
 #include "BeginPrivate.h"
 
-StgNFDataStruct *structNew   (Capability *cap, StgWord size);
-rtsBool          structAppend(StgNFDataStruct *str, StgClosure *what);
-StgNFDataStruct *structResize(Capability *cap, StgNFDataStruct *str, StgWord new_size);
-
-EXTERN_INLINE StgClosure *structGetRoot (StgNFDataStruct *str);
-EXTERN_INLINE StgClosure *structGetRoot (StgNFDataStruct *str)
-{ return str->root; }
+StgNFDataStruct *structNew   (Capability      *cap,
+                              StgWord          size);
+StgPtr           structAppend(StgNFDataStruct *str,
+                              StgClosure      *what);
+StgNFDataStruct *structResize(Capability      *cap,
+                              StgNFDataStruct *str,
+                              StgWord          new_size);
 
 INLINE_HEADER StgNFDataStruct *objectGetStruct (StgClosure *closure);
 INLINE_HEADER StgNFDataStruct *objectGetStruct (StgClosure *closure)

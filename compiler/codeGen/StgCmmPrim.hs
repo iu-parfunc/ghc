@@ -348,7 +348,6 @@ emitPrimOp dflags [res] EqStableNameOp [arg1,arg2]
                                    cmmLoadIndexW dflags arg2 (fixedHdrSizeW dflags) (bWord dflags)
                          ])
 
-
 emitPrimOp dflags [res] ReallyUnsafePtrEqualityOp [arg1,arg2]
    = emitAssign (CmmLocal res) (CmmMachOp (mo_wordEq dflags) [arg1,arg2])
 

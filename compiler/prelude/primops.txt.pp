@@ -2374,6 +2374,30 @@ primop  StableNameToIntOp "stableNameToInt#" GenPrimOp
    StableName# a -> Int#
 
 ------------------------------------------------------------------------
+section "Normal-form non-GC structures"
+------------------------------------------------------------------------
+
+primtype Struct#
+
+primop  StructNewOp "structNew#" GenPrimOp
+   Word# -> State# RealWorld -> (# State# RealWorld, Struct# #)
+   with
+   has_side_effects = True
+   out_of_line      = True
+
+primop  StructAppendOp "structAppend#" GenPrimOp
+   Struct# -> a -> State# RealWorld -> (# State# RealWorld, Addr# #)
+   with
+   has_side_effects = True
+   out_of_line      = True
+
+primop  StructResizeOp "structResize#" GenPrimOp
+   Struct# -> Word# -> State# RealWorld -> (# State# RealWorld, Struct# #)
+   with
+   has_side_effects = True
+   out_of_line      = True
+
+------------------------------------------------------------------------
 section "Unsafe pointer equality"
 --  (#1 Bad Guy: Alistair Reid :)
 ------------------------------------------------------------------------
