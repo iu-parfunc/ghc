@@ -1897,6 +1897,33 @@ stg_deRefStablePtrzh ( P_ sp )
 }
 
 /* -----------------------------------------------------------------------------
+   NFData struct primitives
+   -------------------------------------------------------------------------  */
+
+stg_structNewzh ( W_ size )
+{
+    P_ str;
+    ("ptr" str) = ccall structNew(MyCapability() "ptr", size);
+    return (str);
+}
+
+stg_structAppendzh ( P_ str, P_ val )
+{
+    P_ root;
+    /* ptr hint because root after all is a GC pointer, even if we represent it
+       as a Addr# */
+    ("ptr" root) = ccall structAppend(str "ptr", val "ptr");
+    return (root);
+}
+
+stg_structResizzezh ( P_ str, W_ new_size )
+{
+    P_ new_str;
+    ("ptr" new_str) = ccall structResize(MyCapability() "ptr", str "ptr", new_size);
+    return (new_str);
+}
+
+/* -----------------------------------------------------------------------------
    Bytecode object primitives
    -------------------------------------------------------------------------  */
 

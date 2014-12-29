@@ -44,7 +44,6 @@ structNew (Capability *cap, StgWord size)
     self = structAllocate(cap, aligned_size);
 
     self->allocatedW = aligned_size / sizeof(StgWord);
-    self->root = NULL;
     self->free = (StgPtr)((W_)self + sizeof(StgNFDataStruct));
     ASSERT (self->free == (StgPtr)self + sizeofW(StgNFDataStruct));
 
@@ -72,7 +71,6 @@ structResize (Capability *cap, StgNFDataStruct *str, StgWord new_size)
 
     self->allocatedW = aligned_size / sizeof(StgWord);
     self->free = (StgPtr)((W_)str->free - (W_)str + (W_)self);
-    self->root = (StgClosure*)((W_)str->root - (W_)str + (W_)self);
 
     return self;
 }
@@ -266,7 +264,7 @@ simple_scavenge (StgNFDataStruct *str, StgPtr p, rtsBool evac)
     return rtsTrue;
 }
 
-rtsBool
+StgPtr
 structAppend (StgNFDataStruct *str, StgClosure *what)
 {
     rtsBool ok;
@@ -276,7 +274,7 @@ structAppend (StgNFDataStruct *str, StgClosure *what)
     start = str->free;
     where = what;
     if (!simple_evacuate(str, &where))
-        return rtsFalse;
+        return NULL;
 
     ok = simple_scavenge(str, start, rtsTrue);
 
@@ -288,9 +286,10 @@ structAppend (StgNFDataStruct *str, StgClosure *what)
     what->header.info = ((StgClosure*)start)->header.info;
     simple_scavenge(str, start, rtsFalse);
 
-    // We store the tagged pointer in the root field
+    // Return the tagged pointer for outside use, or NULL
+    // if failed
     if (ok)
-        str->root = where;
-
-    return ok;
+        return (StgPtr)where;
+    else
+        return NULL;
 }

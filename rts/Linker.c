@@ -1402,6 +1402,9 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_yieldzh)                                        \
       SymI_NeedsProto(stg_interp_constr_entry)                          \
       SymI_HasProto(stg_arg_bitmaps)                                    \
+      SymI_HasProto(stg_structNewzh)                                    \
+      SymI_HasProto(stg_structAppendzh)                                 \
+      SymI_HasProto(stg_structResizzezh)                                \
       SymI_HasProto(large_alloc_lim)                                    \
       SymI_HasProto(g0)                                                 \
       SymI_HasProto(allocate)                                           \

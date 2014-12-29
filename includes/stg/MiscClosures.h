@@ -403,6 +403,11 @@ RTS_FUN_DECL(stg_makeStableNamezh);
 RTS_FUN_DECL(stg_makeStablePtrzh);
 RTS_FUN_DECL(stg_deRefStablePtrzh);
 
+RTS_FUN_DECL(stg_structNewzh);
+RTS_FUN_DECL(stg_structAppendzh);
+RTS_FUN_DECL(stg_structResizzezh);
+RTS_FUN_DECL(stg_structGetRootzh);
+
 RTS_FUN_DECL(stg_forkzh);
 RTS_FUN_DECL(stg_forkOnzh);
 RTS_FUN_DECL(stg_yieldzh);

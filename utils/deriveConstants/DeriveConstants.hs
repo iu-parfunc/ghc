@@ -544,6 +544,10 @@ wanteds = concat
           ,closureField C "MessageBlackHole" "tso"
           ,closureField C "MessageBlackHole" "bh"
 
+          ,closureSize  C "StgNFDataStruct"
+          ,closureField C "StgNFDataStruct" "allocatedW"
+          ,closureField C "StgNFDataStruct" "free"
+
           ,structField_ C "RtsFlags_ProfFlags_showCCSOnException"
                           "RTS_FLAGS" "ProfFlags.showCCSOnException"
           ,structField_ C "RtsFlags_DebugFlags_apply"
