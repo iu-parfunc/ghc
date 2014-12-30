@@ -1,0 +1,1 @@
+test('struct_simple', normal, compile_and_run, [''])
