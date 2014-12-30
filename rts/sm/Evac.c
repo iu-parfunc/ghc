@@ -311,7 +311,12 @@ evacuate_large(StgPtr p)
   // pointers.  For these blocks, we skip the scavenge stage and put
   // them straight on the scavenged_large_objects list.
   if (bd->flags & (BF_PINNED | BF_STRUCT)) {
-      ASSERT(get_itbl((StgClosure *)p)->type == ARR_WORDS);
+      if (bd->flags & BF_PINNED) {
+          ASSERT(get_itbl((StgClosure *)p)->type == ARR_WORDS);
+      } else {
+          ASSERT(get_itbl((StgClosure *)p)->type == NFDATA_STRUCT);
+      }
+
       if (new_gen != gen) { ACQUIRE_SPIN_LOCK(&new_gen->sync); }
       dbl_link_onto(bd, &new_gen->scavenged_large_objects);
       new_gen->n_scavenged_large_blocks += bd->blocks;
