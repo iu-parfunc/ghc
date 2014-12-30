@@ -1,1 +1,5 @@
 test('struct_simple', normal, compile_and_run, [''])
+test('struct_loop', normal, compile_and_run, [''])
+test('struct_nospace', normal, compile_and_run, [''])
+test('struct_append', normal, compile_and_run, [''])
+test('struct_resize', normal, compile_and_run, [''])
