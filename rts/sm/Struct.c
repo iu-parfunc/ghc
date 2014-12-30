@@ -229,7 +229,7 @@ simple_evacuate (StgNFDataStruct *str, StgClosure **p)
 }
 
 STATIC_INLINE rtsBool
-unforward (StgClosure **p)
+unforward (StgNFDataStruct *str, StgClosure **p)
 {
     StgClosure *to;
     StgClosure *from;
@@ -239,7 +239,8 @@ unforward (StgClosure **p)
     to = UNTAG_CLOSURE(to);
 
     // Do nothing if the pointer was not rewritten into the to space
-    if (!HEAP_ALLOCED(to))
+    // (can happen if the object is static, or if appending failed)
+    if (!object_in_struct(str, to))
         return rtsTrue;
 
     ASSERT ((Bdescr((StgPtr)to)->flags & BF_STRUCT) != 0);
@@ -262,7 +263,7 @@ simple_evac_or_unforward (StgNFDataStruct *str, StgClosure **p, rtsBool evac)
     if (evac)
         return simple_evacuate(str, p);
     else
-        return unforward(p);
+        return unforward(str, p);
 }
 
 static rtsBool
@@ -352,7 +353,7 @@ structAppend (StgNFDataStruct *str, StgClosure *what)
     // (but only if was actually copied into the struct,
     // to catch the static closure case)
     if ((P_)root == (start+1))
-        what->header.info = root->header.info;
+        UNTAG_CLOSURE(what)->header.info = root->header.info;
     simple_scavenge(str, start, rtsFalse);
 
     // Return the tagged pointer for outside use, or NULL
