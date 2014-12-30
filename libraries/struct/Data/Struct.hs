@@ -76,8 +76,9 @@ makeStruct buffer rootAddr =
 structAppendInternal :: NFData a => Struct# -> a -> State# RealWorld ->
                         (# State# RealWorld, Maybe (Struct a) #)
 structAppendInternal buffer root s =
-  case structAppend# buffer (force root) s of
-    (# s', rootAddr #) -> (# s', maybeMakeStruct buffer rootAddr #)
+  case force root of
+    !eval -> case structAppend# buffer eval s of
+      (# s', rootAddr #) -> (# s', maybeMakeStruct buffer rootAddr #)
 
 structAppend :: NFData a => Struct b -> a -> IO (Maybe (Struct a))
 structAppend str root =

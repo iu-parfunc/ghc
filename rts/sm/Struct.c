@@ -28,6 +28,7 @@ structAllocate(Capability *cap, StgWord aligned_size)
     n_blocks = aligned_size / BLOCK_SIZE;
     self = (StgNFDataStruct*) allocate(cap, aligned_size / sizeof(StgWord));
 
+    SET_INFO((StgClosure*)self, &stg_NFDATA_STRUCT_info);
     for (block = Bdescr((P_)self); n_blocks > 0; block++, n_blocks--)
         block->flags |= BF_STRUCT;
 
@@ -113,7 +114,16 @@ structResize (Capability *cap, StgNFDataStruct *str, StgWord new_size)
    in the outside space, where we restore a good info table taken
    from the to object.
 
+   You might be tempted to replace the objects with StdInd to
+   the object in the struct, but you would be wrong: the haskell
+   code assumes that objects in the heap only become more evaluated
+   (thunks to blackholes to inds to actual objects), and in
+   particular it assumes that if a pointer is tagged the object
+   is directly referenced and the values can be read directly,
+   without entering the closure.
+
    FIXME: any better idea?
+   FIXME: threading issues with concurrent access to the objects?
 */
 
 static void
@@ -124,31 +134,10 @@ unroll_memcpy(StgPtr to, StgPtr from, StgWord size)
 }
 
 static rtsBool
-simple_evacuate (StgNFDataStruct *str, StgClosure **p)
+copy_tag (StgNFDataStruct *str, StgClosure **p, StgClosure *from, StgWord tag)
 {
-    StgWord sizeW;
-    StgWord tag;
-    StgClosure *from;
     StgPtr to;
-
-    from = *p;
-    tag = GET_CLOSURE_TAG(from);
-    from = UNTAG_CLOSURE(from);
-
-    // Do nothing on static closures, just reference them.
-    // They would not be GCed anyway. And in practice we should
-    // not see them (because they are THUNKs or FUNs), but
-    // we could see CHARLIKE and INTLIKE
-    if (!HEAP_ALLOCED(from))
-        return rtsTrue;
-
-    if (IS_FORWARDING_PTR(from->header.info)) {
-        StgClosure *c;
-
-        c = (StgClosure*)UN_FORWARDING_PTR(from->header.info);
-        *p = TAG_CLOSURE(tag, c);
-        return rtsTrue;
-    }
+    StgWord sizeW;
 
     sizeW = 1 + closure_sizeW(from);
     to = str->free;
@@ -176,6 +165,67 @@ simple_evacuate (StgNFDataStruct *str, StgClosure **p)
     *p = TAG_CLOSURE(tag, (StgClosure*)to);
 
     return rtsTrue;
+}
+
+STATIC_INLINE rtsBool
+object_in_struct (StgNFDataStruct *str, StgClosure *p)
+{
+    return ((P_)p >= (P_)str && (P_)p < str->free);
+}
+
+static rtsBool
+simple_evacuate (StgNFDataStruct *str, StgClosure **p)
+{
+    StgWord tag;
+    StgClosure *from;
+
+    from = *p;
+    tag = GET_CLOSURE_TAG(from);
+    from = UNTAG_CLOSURE(from);
+
+    // Do nothing on static closures, just reference them.
+    // They would not be GCed anyway. And in practice we should
+    // not see them (because they are THUNKs or FUNs), but
+    // we could see CHARLIKE and INTLIKE
+    if (!HEAP_ALLOCED(from))
+        return rtsTrue;
+
+    // If the object referenced is already in the struct
+    // (for example by reappending an object that was obtained
+    // by structGetRoot) then do nothing
+    if (object_in_struct(str, from))
+        return rtsTrue;
+
+    if (IS_FORWARDING_PTR(from->header.info)) {
+        StgClosure *c;
+
+        c = (StgClosure*)UN_FORWARDING_PTR(from->header.info);
+        *p = TAG_CLOSURE(tag, c);
+        return rtsTrue;
+    }
+
+    switch (get_itbl(from)->type) {
+    case BLACKHOLE:
+        // If tag == 0, the indirectee is the TSO that claimed the tag
+        //
+        // Not useful and not NFData
+        from = ((StgInd*)from)->indirectee;
+        if (GET_CLOSURE_TAG(from) == 0)
+            return rtsFalse;
+        *p = from;
+        return simple_evacuate(str, p);
+
+    case IND:
+        // follow chains of indirections, don't evacuate them
+        from = ((StgInd*)from)->indirectee;
+        *p = from;
+        // Evac.c uses a goto, but let's rely on a smart compiler
+        // and get readable code instead
+        return simple_evacuate(str, p);
+
+    default:
+        return copy_tag(str, p, from, tag);
+    }
 }
 
 STATIC_INLINE rtsBool
@@ -221,6 +271,11 @@ simple_scavenge (StgNFDataStruct *str, StgPtr p, rtsBool evac)
     StgInfoTable *info;
 
     while (p < str->free) {
+        // Skip the back pointer added by evacuate
+        ASSERT (LOOKS_LIKE_CLOSURE_PTR(*(StgClosure**)p));
+        p++;
+
+        ASSERT (LOOKS_LIKE_CLOSURE_PTR(p));
         info = get_itbl((StgClosure*)p);
 
         switch (info->type) {
@@ -255,8 +310,15 @@ simple_scavenge (StgNFDataStruct *str, StgPtr p, rtsBool evac)
             break;
         }
 
+        case IND:
+        case BLACKHOLE:
+            if (!simple_evac_or_unforward(str, &((StgInd*)p)->indirectee, evac))
+                return rtsFalse;
+            p += sizeofW(StgInd);
+            break;
+
         default:
-            debugBelch("Invalid non-NFData closure in Struct");
+            debugBelch("Invalid non-NFData closure in Struct\n");
             return rtsFalse;
         }
     }
@@ -268,13 +330,18 @@ StgPtr
 structAppend (StgNFDataStruct *str, StgClosure *what)
 {
     rtsBool ok;
+    StgClosure *root;
+    StgClosure *tagged_root;
     StgPtr start;
-    StgClosure *where;
 
     start = str->free;
-    where = what;
-    if (!simple_evacuate(str, &where))
+    tagged_root = what;
+    if (!simple_evacuate(str, &tagged_root))
         return NULL;
+
+    root = UNTAG_CLOSURE(tagged_root);
+    ASSERT((P_)root == (start+1) ||
+           (!HEAP_ALLOCED(root) && root == UNTAG_CLOSURE(what)));
 
     ok = simple_scavenge(str, start, rtsTrue);
 
@@ -282,14 +349,19 @@ structAppend (StgNFDataStruct *str, StgClosure *what)
     // tricks for this one, and we don't need to check if
     // it is a forwarding pointer because we know it is)
     //
-    // Don't use where because that might be a tagged pointer
-    what->header.info = ((StgClosure*)start)->header.info;
+    // (but only if was actually copied into the struct,
+    // to catch the static closure case)
+    if ((P_)root == (start+1))
+        what->header.info = root->header.info;
     simple_scavenge(str, start, rtsFalse);
 
     // Return the tagged pointer for outside use, or NULL
     // if failed
-    if (ok)
-        return (StgPtr)where;
-    else
+    if (ok) {
+        return (StgPtr)tagged_root;
+    } else {
+        // Undo any partial allocation
+        str->free = start;
         return NULL;
+    }
 }
