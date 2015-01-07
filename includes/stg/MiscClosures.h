@@ -145,7 +145,7 @@ RTS_ENTRY(stg_END_STM_WATCH_QUEUE);
 RTS_ENTRY(stg_END_INVARIANT_CHECK_QUEUE);
 RTS_ENTRY(stg_END_STM_CHUNK_LIST);
 RTS_ENTRY(stg_NO_TREC);
-RTS_ENTRY(stg_NFDATA_STRUCT);
+RTS_ENTRY(stg_COMPACT_NFDATA);
 
 /* closures */
 
@@ -403,10 +403,10 @@ RTS_FUN_DECL(stg_makeStableNamezh);
 RTS_FUN_DECL(stg_makeStablePtrzh);
 RTS_FUN_DECL(stg_deRefStablePtrzh);
 
-RTS_FUN_DECL(stg_structNewzh);
-RTS_FUN_DECL(stg_structAppendzh);
-RTS_FUN_DECL(stg_structResizzezh);
-RTS_FUN_DECL(stg_structGetRootzh);
+RTS_FUN_DECL(stg_compactNewzh);
+RTS_FUN_DECL(stg_compactAppendzh);
+RTS_FUN_DECL(stg_compactResizzezh);
+RTS_FUN_DECL(stg_compactGetRootzh);
 
 RTS_FUN_DECL(stg_forkzh);
 RTS_FUN_DECL(stg_forkOnzh);

@@ -3,7 +3,7 @@ module Main where
 import Control.Exception
 import System.Mem
 
-import Data.Struct
+import Data.Compact
 
 assertFail :: String -> IO ()
 assertFail msg = throwIO $ AssertionFailed msg
@@ -16,17 +16,17 @@ assertEquals expected actual =
 
 main = do
   let val = ("hello", 1, 42, 42, Just 42) :: (String, Int, Int, Integer, Maybe Int)
-  maybeStr <- structNew 4096 val
+  maybeStr <- compactNew 4096 val
   case maybeStr of
-    Nothing -> assertFail "failed to create the struct"
+    Nothing -> assertFail "failed to create the compact"
     Just str -> do
       -- check that val is still good
       assertEquals ("hello", 1, 42, 42, Just 42) val
-      -- check the value in the struct
-      assertEquals ("hello", 1, 42, 42, Just 42) (structGetRoot str)
+      -- check the value in the compact
+      assertEquals ("hello", 1, 42, 42, Just 42) (compactGetRoot str)
       performMajorGC
       -- check again val
       assertEquals ("hello", 1, 42, 42, Just 42) val
-      -- check again the value in the struct
-      assertEquals ("hello", 1, 42, 42, Just 42) (structGetRoot str)
+      -- check again the value in the compact
+      assertEquals ("hello", 1, 42, 42, Just 42) (compactGetRoot str)
 

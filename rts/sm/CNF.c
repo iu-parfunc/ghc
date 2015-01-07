@@ -16,48 +16,48 @@
 #include "Rts.h"
 
 #include "GC.h"
-#include "Struct.h"
+#include "CNF.h"
 
-static StgNFDataStruct *
-structAllocate(Capability *cap, StgWord aligned_size)
+static StgCompactNFData *
+compactAllocate(Capability *cap, StgWord aligned_size)
 {
-    StgNFDataStruct *self;
+    StgCompactNFData *self;
     bdescr *block;
     nat n_blocks;
 
     n_blocks = aligned_size / BLOCK_SIZE;
-    self = (StgNFDataStruct*) allocate(cap, aligned_size / sizeof(StgWord));
+    self = (StgCompactNFData*) allocate(cap, aligned_size / sizeof(StgWord));
 
-    SET_INFO((StgClosure*)self, &stg_NFDATA_STRUCT_info);
+    SET_INFO((StgClosure*)self, &stg_COMPACT_NFDATA_info);
     for (block = Bdescr((P_)self); n_blocks > 0; block++, n_blocks--)
-        block->flags |= BF_STRUCT;
+        block->flags |= BF_COMPACT;
 
     return self;
 }
 
-StgNFDataStruct *
-structNew (Capability *cap, StgWord size)
+StgCompactNFData *
+compactNew (Capability *cap, StgWord size)
 {
     StgWord aligned_size;
-    StgNFDataStruct *self;
+    StgCompactNFData *self;
 
-    aligned_size = BLOCK_ROUND_UP(size + sizeof(StgNFDataStruct));
-    self = structAllocate(cap, aligned_size);
+    aligned_size = BLOCK_ROUND_UP(size + sizeof(StgCompactNFData));
+    self = compactAllocate(cap, aligned_size);
 
     self->allocatedW = aligned_size / sizeof(StgWord);
-    self->free = (StgPtr)((W_)self + sizeof(StgNFDataStruct));
-    ASSERT (self->free == (StgPtr)self + sizeofW(StgNFDataStruct));
+    self->free = (StgPtr)((W_)self + sizeof(StgCompactNFData));
+    ASSERT (self->free == (StgPtr)self + sizeofW(StgCompactNFData));
 
     return self;
 }
 
-StgNFDataStruct *
-structResize (Capability *cap, StgNFDataStruct *str, StgWord new_size)
+StgCompactNFData *
+compactResize (Capability *cap, StgCompactNFData *str, StgWord new_size)
 {
     StgWord current_size, aligned_size;
-    StgNFDataStruct *self;
+    StgCompactNFData *self;
 
-    aligned_size = BLOCK_ROUND_UP(new_size + sizeof(StgNFDataStruct));
+    aligned_size = BLOCK_ROUND_UP(new_size + sizeof(StgCompactNFData));
     current_size = str->allocatedW * sizeof(StgWord);
 
     // It might be that new_size was still covered by the alignment
@@ -66,7 +66,7 @@ structResize (Capability *cap, StgNFDataStruct *str, StgWord new_size)
     if (aligned_size <= current_size)
         return str;
 
-    self = structAllocate(cap, aligned_size);
+    self = compactAllocate(cap, aligned_size);
 
     memcpy (self, str, str->allocatedW * sizeof(StgWord));
 
@@ -87,12 +87,12 @@ structResize (Capability *cap, StgNFDataStruct *str, StgWord new_size)
    (in Haskell, above the primop which is implemented here).
    Also, we have a different policy for large objects: instead
    of relinking to the new large object list, we fully copy
-   them inside the struct and scavenge them normally.
+   them inside the compact and scavenge them normally.
 
-   Note that if we allowed thunks and lazy evaluation the struct
+   Note that if we allowed thunks and lazy evaluation the compact
    would be a mutable object, which would create all sorts of
    GC problems (besides, evaluating a thunk could exaust the
-   struct space or yield an invalid object, and we would have
+   compact space or yield an invalid object, and we would have
    no way to signal that to the user)
 
    Just like the real evacuate/scavenge pairs, we need to handle
@@ -108,14 +108,14 @@ structResize (Capability *cap, StgNFDataStruct *str, StgWord new_size)
    So instead we just run another scavenge pass that replaces
    forwarding pointers with good closures again. To do so, we need
    to find where are the original objects, which we do with a
-   "back" pointer: before each object in the struct space, we write
+   "back" pointer: before each object in the compact space, we write
    a pointer to the original one. During the unforward pass, we
    scavenge the to space and then use this pointer to find the object
    in the outside space, where we restore a good info table taken
    from the to object.
 
    You might be tempted to replace the objects with StdInd to
-   the object in the struct, but you would be wrong: the haskell
+   the object in the compact, but you would be wrong: the haskell
    code assumes that objects in the heap only become more evaluated
    (thunks to blackholes to inds to actual objects), and in
    particular it assumes that if a pointer is tagged the object
@@ -134,7 +134,7 @@ unroll_memcpy(StgPtr to, StgPtr from, StgWord size)
 }
 
 static rtsBool
-copy_tag (StgNFDataStruct *str, StgClosure **p, StgClosure *from, StgWord tag)
+copy_tag (StgCompactNFData *str, StgClosure **p, StgClosure *from, StgWord tag)
 {
     StgPtr to;
     StgWord sizeW;
@@ -168,13 +168,13 @@ copy_tag (StgNFDataStruct *str, StgClosure **p, StgClosure *from, StgWord tag)
 }
 
 STATIC_INLINE rtsBool
-object_in_struct (StgNFDataStruct *str, StgClosure *p)
+object_in_compact (StgCompactNFData *str, StgClosure *p)
 {
     return ((P_)p >= (P_)str && (P_)p < str->free);
 }
 
 static rtsBool
-simple_evacuate (StgNFDataStruct *str, StgClosure **p)
+simple_evacuate (StgCompactNFData *str, StgClosure **p)
 {
     StgWord tag;
     StgClosure *from;
@@ -190,10 +190,10 @@ simple_evacuate (StgNFDataStruct *str, StgClosure **p)
     if (!HEAP_ALLOCED(from))
         return rtsTrue;
 
-    // If the object referenced is already in the struct
+    // If the object referenced is already in the compact
     // (for example by reappending an object that was obtained
-    // by structGetRoot) then do nothing
-    if (object_in_struct(str, from))
+    // by compactGetRoot) then do nothing
+    if (object_in_compact(str, from))
         return rtsTrue;
 
     if (IS_FORWARDING_PTR(from->header.info)) {
@@ -229,7 +229,7 @@ simple_evacuate (StgNFDataStruct *str, StgClosure **p)
 }
 
 STATIC_INLINE rtsBool
-unforward (StgNFDataStruct *str, StgClosure **p)
+unforward (StgCompactNFData *str, StgClosure **p)
 {
     StgClosure *to;
     StgClosure *from;
@@ -240,10 +240,10 @@ unforward (StgNFDataStruct *str, StgClosure **p)
 
     // Do nothing if the pointer was not rewritten into the to space
     // (can happen if the object is static, or if appending failed)
-    if (!object_in_struct(str, to))
+    if (!object_in_compact(str, to))
         return rtsTrue;
 
-    ASSERT ((Bdescr((StgPtr)to)->flags & BF_STRUCT) != 0);
+    ASSERT ((Bdescr((StgPtr)to)->flags & BF_COMPACT) != 0);
 
     // Extract the from object looking before the to object
     from = (StgClosure*)(*(((StgPtr)to)-1));
@@ -258,7 +258,7 @@ unforward (StgNFDataStruct *str, StgClosure **p)
 }
 
 STATIC_INLINE rtsBool
-simple_evac_or_unforward (StgNFDataStruct *str, StgClosure **p, rtsBool evac)
+simple_evac_or_unforward (StgCompactNFData *str, StgClosure **p, rtsBool evac)
 {
     if (evac)
         return simple_evacuate(str, p);
@@ -267,7 +267,7 @@ simple_evac_or_unforward (StgNFDataStruct *str, StgClosure **p, rtsBool evac)
 }
 
 static rtsBool
-simple_scavenge (StgNFDataStruct *str, StgPtr p, rtsBool evac)
+simple_scavenge (StgCompactNFData *str, StgPtr p, rtsBool evac)
 {
     StgInfoTable *info;
 
@@ -319,7 +319,7 @@ simple_scavenge (StgNFDataStruct *str, StgPtr p, rtsBool evac)
             break;
 
         default:
-            debugBelch("Invalid non-NFData closure in Struct\n");
+            debugBelch("Invalid non-NFData closure in Compact\n");
             return rtsFalse;
         }
     }
@@ -328,7 +328,7 @@ simple_scavenge (StgNFDataStruct *str, StgPtr p, rtsBool evac)
 }
 
 StgPtr
-structAppend (StgNFDataStruct *str, StgClosure *what)
+compactAppend (StgCompactNFData *str, StgClosure *what)
 {
     rtsBool ok;
     StgClosure *root;
@@ -350,7 +350,7 @@ structAppend (StgNFDataStruct *str, StgClosure *what)
     // tricks for this one, and we don't need to check if
     // it is a forwarding pointer because we know it is)
     //
-    // (but only if was actually copied into the struct,
+    // (but only if was actually copied into the compact,
     // to catch the static closure case)
     if ((P_)root == (start+1))
         UNTAG_CLOSURE(what)->header.info = root->header.info;

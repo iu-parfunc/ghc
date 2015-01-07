@@ -1364,7 +1364,7 @@ statePrimTyConKey, stableNamePrimTyConKey, stableNameTyConKey,
     liftedConKey, unliftedConKey, anyBoxConKey, kindConKey, boxityConKey,
     typeConKey, threadIdPrimTyConKey, bcoPrimTyConKey, ptrTyConKey,
     funPtrTyConKey, tVarPrimTyConKey, eqPrimTyConKey,
-    eqReprPrimTyConKey, voidPrimTyConKey, structPrimTyConKey :: Unique
+    eqReprPrimTyConKey, voidPrimTyConKey, compactPrimTyConKey :: Unique
 statePrimTyConKey                       = mkPreludeTyConUnique 50
 stableNamePrimTyConKey                  = mkPreludeTyConUnique 51
 stableNameTyConKey                      = mkPreludeTyConUnique 52
@@ -1392,7 +1392,7 @@ bcoPrimTyConKey                         = mkPreludeTyConUnique 73
 ptrTyConKey                             = mkPreludeTyConUnique 74
 funPtrTyConKey                          = mkPreludeTyConUnique 75
 tVarPrimTyConKey                        = mkPreludeTyConUnique 76
-structPrimTyConKey                      = mkPreludeTyConUnique 77
+compactPrimTyConKey                     = mkPreludeTyConUnique 77
 
 -- Parallel array type constructor
 parrTyConKey :: Unique

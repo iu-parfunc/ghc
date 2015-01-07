@@ -396,7 +396,7 @@ PACKAGES_STAGE1 += base
 PACKAGES_STAGE1 += filepath
 PACKAGES_STAGE1 += array
 PACKAGES_STAGE1 += deepseq
-PACKAGES_STAGE1 += struct
+PACKAGES_STAGE1 += compact
 PACKAGES_STAGE1 += bytestring
 PACKAGES_STAGE1 += containers
 

@@ -395,9 +395,9 @@ printClosure( StgClosure *obj )
       break;
 #endif
 
-    case NFDATA_STRUCT:
-        debugBelch("NFDATA_STRUCT(size=%" FMT_Word ")\n",
-                   (W_)((StgNFDataStruct *)obj)->allocatedW * sizeof(W_));
+    case COMPACT_NFDATA:
+        debugBelch("COMPACT_NFDATA(size=%" FMT_Word ")\n",
+                   (W_)((StgCompactNFData *)obj)->allocatedW * sizeof(W_));
         break;
 
 

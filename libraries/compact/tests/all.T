@@ -1,0 +1,5 @@
+test('compact_simple', normal, compile_and_run, [''])
+test('compact_loop', normal, compile_and_run, [''])
+test('compact_nospace', normal, compile_and_run, [''])
+test('compact_append', normal, compile_and_run, [''])
+test('compact_resize', normal, compile_and_run, [''])

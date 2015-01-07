@@ -86,7 +86,7 @@ StgWord16 closure_flags[] = {
  [SMALL_MUT_ARR_PTRS_DIRTY]   =  (_HNF|     _NS|         _MUT|_UPT           ),
  [SMALL_MUT_ARR_PTRS_FROZEN0] =  (_HNF|     _NS|         _MUT|_UPT           ),
  [SMALL_MUT_ARR_PTRS_FROZEN]  =  (_HNF|     _NS|              _UPT           ),
- [NFDATA_STRUCT]       =   (_HNF|     _NS                              ),
+ [COMPACT_NFDATA]       =  (_HNF|     _NS                              ),
 };
 
 #if N_CLOSURE_TYPES != 66
