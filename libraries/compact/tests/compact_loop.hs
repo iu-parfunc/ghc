@@ -5,7 +5,7 @@ import Control.DeepSeq
 import System.Mem
 import Text.Show
 
-import Data.Struct
+import Data.Compact
 
 assertFail :: String -> IO ()
 assertFail msg = throwIO $ AssertionFailed msg
@@ -35,13 +35,13 @@ instance NFData Tree where
 main = do
   let a = Node Nil Nil b
       b = Node a Nil Nil
-  maybeStr <- structNew 4096 a
+  maybeStr <- compactNew 4096 a
   case maybeStr of
-    Nothing -> assertFail "failed to create the struct"
+    Nothing -> assertFail "failed to create the compact"
     Just str -> do
-      -- check the value in the struct
-      assertEquals a (structGetRoot str)
+      -- check the value in the compact
+      assertEquals a (compactGetRoot str)
       performMajorGC
-      -- check again the value in the struct
-      assertEquals a (structGetRoot str)
+      -- check again the value in the compact
+      assertEquals a (compactGetRoot str)
 

@@ -83,7 +83,7 @@
 #define SMALL_MUT_ARR_PTRS_DIRTY      62
 #define SMALL_MUT_ARR_PTRS_FROZEN0    63
 #define SMALL_MUT_ARR_PTRS_FROZEN     64
-#define NFDATA_STRUCT           65
+#define COMPACT_NFDATA          65
 #define N_CLOSURE_TYPES         66
 
 #endif /* RTS_STORAGE_CLOSURETYPES_H */

@@ -3,7 +3,7 @@ module Main where
 import Control.Exception
 import System.Mem
 
-import Data.Struct
+import Data.Compact
 
 assertFail :: String -> IO ()
 assertFail msg = throwIO $ AssertionFailed msg
@@ -20,7 +20,7 @@ main = do
   -- sure the value is not static
 
   -- v2 takes 512 cons cells (3 words each, 4 when profiling),
-  -- for a total of 2048 words. It will not fit in the struct
+  -- for a total of 2048 words. It will not fit in the compact
   -- initially sized (1 block, 512 words).
   -- (v1 OTOH will because of block alignment)
   -- After resizing, we reserve 2560 (5 words per cell) just to
@@ -30,20 +30,20 @@ main = do
   -- if the optimizer is off)
   let v1 = take 2 [1..] :: [Int]
       v2 = replicate 512 7 :: [Int]
-  maybeStr1 <- structNew 1 v1
+  maybeStr1 <- compactNew 1 v1
   case maybeStr1 of
-    Nothing -> assertFail "failed to create the struct"
+    Nothing -> assertFail "failed to create the compact"
     Just str1 -> do
-      maybeStr2 <- structAppend str1 v2
+      maybeStr2 <- compactAppend str1 v2
       case maybeStr2 of
-        Just _ -> assertFail "appended the struct without space"
+        Just _ -> assertFail "appended the compact without space"
         Nothing -> do
-          str3 <- structResize str1 (2560*8)
-          maybeStr4 <- structAppend str3 v2
+          str3 <- compactResize str1 (2560*8)
+          maybeStr4 <- compactAppend str3 v2
           case maybeStr4 of
-            Nothing -> assertFail "failed to append to the resized struct"
+            Nothing -> assertFail "failed to append to the resized compact"
             Just str4 -> do
-              assertEquals v1 (structGetRoot str1)
-              assertEquals v1 (structGetRoot str3)
-              assertEquals v2 (structGetRoot str4)
+              assertEquals v1 (compactGetRoot str1)
+              assertEquals v1 (compactGetRoot str3)
+              assertEquals v2 (compactGetRoot str4)
 
