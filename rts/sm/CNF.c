@@ -17,6 +17,7 @@
 
 #include "GC.h"
 #include "CNF.h"
+#include "Hash.h"
 
 static StgCompactNFData *
 compactAllocate(Capability *cap, StgWord aligned_size)
@@ -96,23 +97,17 @@ compactResize (Capability *cap, StgCompactNFData *str, StgWord new_size)
    no way to signal that to the user)
 
    Just like the real evacuate/scavenge pairs, we need to handle
-   object loops. We want to use the same strategy of rewriting objects
+   object loops. We would want to use the same strategy of rewriting objects
    with forwarding pointer, but in a real GC, at the end the
    blocks from the old space are dropped (dropping all forwarding
    pointers at the same time), which we can't do here as we don't
-   know all pointers to the objects being evacuate. We would need
-   to extend the running code with knowledge of forwarding pointers
-   (which would slow it down considerably) or run a major GC pass
-   at the end (which is also slow).
+   know all pointers to the objects being evacuated. Also, in parallel
+   we don't know which other threads are evaluating the thunks
+   that we just corrupted at the same time.
 
-   So instead we just run another scavenge pass that replaces
-   forwarding pointers with good closures again. To do so, we need
-   to find where are the original objects, which we do with a
-   "back" pointer: before each object in the compact space, we write
-   a pointer to the original one. During the unforward pass, we
-   scavenge the to space and then use this pointer to find the object
-   in the outside space, where we restore a good info table taken
-   from the to object.
+   So instead we use a hash table of "visited" objects, and add
+   the pointer as we copy it. To reduce the overhead, we also offer
+   a version of the API that does not preserve sharing (TODO).
 
    You might be tempted to replace the objects with StdInd to
    the object in the compact, but you would be wrong: the haskell
@@ -122,8 +117,7 @@ compactResize (Capability *cap, StgCompactNFData *str, StgWord new_size)
    is directly referenced and the values can be read directly,
    without entering the closure.
 
-   FIXME: any better idea?
-   FIXME: threading issues with concurrent access to the objects?
+   FIXME: any better idea than the hash table?
 */
 
 static void
@@ -134,24 +128,18 @@ unroll_memcpy(StgPtr to, StgPtr from, StgWord size)
 }
 
 static rtsBool
-copy_tag (StgCompactNFData *str, StgClosure **p, StgClosure *from, StgWord tag)
+copy_tag (StgCompactNFData *str, HashTable *hash, StgClosure **p, StgClosure *from, StgWord tag)
 {
     StgPtr to;
     StgWord sizeW;
 
-    sizeW = 1 + closure_sizeW(from);
+    sizeW = closure_sizeW(from);
     to = str->free;
 
     if (to + sizeW >= ((StgPtr)str) + str->allocatedW)
         return rtsFalse;
 
     str->free += sizeW;
-
-    // Store the original pointer so that we can unforward it
-    // later
-    *to = (StgWord)from;
-    to++;
-    sizeW--;
 
     // unroll memcpy for small sizes because we can
     // benefit of known alignment
@@ -161,7 +149,8 @@ copy_tag (StgCompactNFData *str, StgClosure **p, StgClosure *from, StgWord tag)
     else
         memcpy(to, from, sizeW * sizeof(StgWord));
 
-    from->header.info = (const StgInfoTable *)MK_FORWARDING_PTR(to);
+    if (hash != NULL)
+        insertHashTable(hash, (StgWord)from, to);
     *p = TAG_CLOSURE(tag, (StgClosure*)to);
 
     return rtsTrue;
@@ -174,10 +163,11 @@ object_in_compact (StgCompactNFData *str, StgClosure *p)
 }
 
 static rtsBool
-simple_evacuate (StgCompactNFData *str, StgClosure **p)
+simple_evacuate (StgCompactNFData *str, HashTable *hash, StgClosure **p)
 {
     StgWord tag;
     StgClosure *from;
+    void *already;
 
     from = *p;
     tag = GET_CLOSURE_TAG(from);
@@ -196,11 +186,11 @@ simple_evacuate (StgCompactNFData *str, StgClosure **p)
     if (object_in_compact(str, from))
         return rtsTrue;
 
-    if (IS_FORWARDING_PTR(from->header.info)) {
-        StgClosure *c;
-
-        c = (StgClosure*)UN_FORWARDING_PTR(from->header.info);
-        *p = TAG_CLOSURE(tag, c);
+    // This object was evacuated already, return the existing
+    // pointer
+    if (hash != NULL &&
+        (already = lookupHashTable (hash, (StgWord)from))) {
+        *p = TAG_CLOSURE(tag, (StgClosure*)already);
         return rtsTrue;
     }
 
@@ -213,7 +203,7 @@ simple_evacuate (StgCompactNFData *str, StgClosure **p)
         if (GET_CLOSURE_TAG(from) == 0)
             return rtsFalse;
         *p = from;
-        return simple_evacuate(str, p);
+        return simple_evacuate(str, hash, p);
 
     case IND:
         // follow chains of indirections, don't evacuate them
@@ -221,77 +211,35 @@ simple_evacuate (StgCompactNFData *str, StgClosure **p)
         *p = from;
         // Evac.c uses a goto, but let's rely on a smart compiler
         // and get readable code instead
-        return simple_evacuate(str, p);
+        return simple_evacuate(str, hash, p);
 
     default:
-        return copy_tag(str, p, from, tag);
+        return copy_tag(str, hash, p, from, tag);
     }
 }
 
-STATIC_INLINE rtsBool
-unforward (StgCompactNFData *str, StgClosure **p)
-{
-    StgClosure *to;
-    StgClosure *from;
-
-    // In this pass, p points into the to space, not the from space!
-    to = *p;
-    to = UNTAG_CLOSURE(to);
-
-    // Do nothing if the pointer was not rewritten into the to space
-    // (can happen if the object is static, or if appending failed)
-    if (!object_in_compact(str, to))
-        return rtsTrue;
-
-    ASSERT ((Bdescr((StgPtr)to)->flags & BF_COMPACT) != 0);
-
-    // Extract the from object looking before the to object
-    from = (StgClosure*)(*(((StgPtr)to)-1));
-
-    // It might not be a forwarding pointer because
-    // it might be already unforwarded by another pointer to this
-    // object
-    if (IS_FORWARDING_PTR(from->header.info))
-        from->header.info = to->header.info;
-
-    return rtsTrue;
-}
-
-STATIC_INLINE rtsBool
-simple_evac_or_unforward (StgCompactNFData *str, StgClosure **p, rtsBool evac)
-{
-    if (evac)
-        return simple_evacuate(str, p);
-    else
-        return unforward(str, p);
-}
-
 static rtsBool
-simple_scavenge (StgCompactNFData *str, StgPtr p, rtsBool evac)
+simple_scavenge (StgCompactNFData *str, HashTable *hash, StgPtr p)
 {
     StgInfoTable *info;
 
     while (p < str->free) {
-        // Skip the back pointer added by evacuate
-        ASSERT (LOOKS_LIKE_CLOSURE_PTR(*(StgClosure**)p));
-        p++;
-
         ASSERT (LOOKS_LIKE_CLOSURE_PTR(p));
         info = get_itbl((StgClosure*)p);
 
         switch (info->type) {
         case CONSTR_1_0:
-            if (!simple_evac_or_unforward(str, &((StgClosure*)p)->payload[0], evac))
+            if (!simple_evacuate(str, hash, &((StgClosure*)p)->payload[0]))
                 return rtsFalse;
         case CONSTR_0_1:
             p += sizeofW(StgClosure) + 1;
             break;
 
         case CONSTR_2_0:
-            if (!simple_evac_or_unforward(str, &((StgClosure*)p)->payload[1], evac))
+            if (!simple_evacuate(str, hash, &((StgClosure*)p)->payload[1]))
                 return rtsFalse;
         case CONSTR_1_1:
-            if (!simple_evac_or_unforward(str, &((StgClosure*)p)->payload[0], evac))
+            if (!simple_evacuate(str, hash, &((StgClosure*)p)->payload[0]))
                 return rtsFalse;
         case CONSTR_0_2:
             p += sizeofW(StgClosure) + 2;
@@ -304,7 +252,7 @@ simple_scavenge (StgCompactNFData *str, StgPtr p, rtsBool evac)
 
             end = (P_)((StgClosure *)p)->payload + info->layout.payload.ptrs;
             for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
-                if (!simple_evac_or_unforward(str, (StgClosure **)p, evac))
+                if (!simple_evacuate(str, hash, (StgClosure **)p))
                     return rtsFalse;
             }
             p += info->layout.payload.nptrs;
@@ -313,7 +261,7 @@ simple_scavenge (StgCompactNFData *str, StgPtr p, rtsBool evac)
 
         case IND:
         case BLACKHOLE:
-            if (!simple_evac_or_unforward(str, &((StgInd*)p)->indirectee, evac))
+            if (!simple_evacuate(str, hash, &((StgInd*)p)->indirectee))
                 return rtsFalse;
             p += sizeofW(StgInd);
             break;
@@ -334,27 +282,23 @@ compactAppend (StgCompactNFData *str, StgClosure *what)
     StgClosure *root;
     StgClosure *tagged_root;
     StgPtr start;
+    HashTable *hash;
 
     start = str->free;
     tagged_root = what;
-    if (!simple_evacuate(str, &tagged_root))
+    if (!simple_evacuate(str, NULL, &tagged_root))
         return NULL;
 
     root = UNTAG_CLOSURE(tagged_root);
-    ASSERT((P_)root == (start+1) ||
+    ASSERT((P_)root == start ||
            (!HEAP_ALLOCED(root) && root == UNTAG_CLOSURE(what)));
 
-    ok = simple_scavenge(str, start, rtsTrue);
+    hash = allocHashTable ();
+    insertHashTable(hash, (StgWord)UNTAG_CLOSURE(what), root);
 
-    // unforward what (manually because we don't need nasty
-    // tricks for this one, and we don't need to check if
-    // it is a forwarding pointer because we know it is)
-    //
-    // (but only if was actually copied into the compact,
-    // to catch the static closure case)
-    if ((P_)root == (start+1))
-        UNTAG_CLOSURE(what)->header.info = root->header.info;
-    simple_scavenge(str, start, rtsFalse);
+    ok = simple_scavenge(str, hash, start);
+
+    freeHashTable(hash, NULL);
 
     // Return the tagged pointer for outside use, or NULL
     // if failed
