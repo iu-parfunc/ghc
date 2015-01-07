@@ -32,8 +32,9 @@ instance NFData Tree where
   rnf Nil = ()
   rnf (Node p l r) = p `seq` rnf l `seq` rnf r `seq` ()
 
-main = do
-  let a = Node Nil Nil b
+{-# NOINLINE test #-}
+test x = do
+  let a = Node Nil x b
       b = Node a Nil Nil
   maybeStr <- compactNew 4096 a
   case maybeStr of
@@ -44,4 +45,11 @@ main = do
       performMajorGC
       -- check again the value in the compact
       assertEquals a (compactGetRoot str)
+  -- now try with compactNewNoShare (should fail)
+  maybeStr2 <- compactNewNoShare 4096 a
+  case maybeStr2 of
+    Nothing -> return ()
+    Just str2 -> assertFail "unexpectedly created a compact with a loop"
 
+
+main = test Nil
