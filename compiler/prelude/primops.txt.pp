@@ -2374,26 +2374,26 @@ primop  StableNameToIntOp "stableNameToInt#" GenPrimOp
    StableName# a -> Int#
 
 ------------------------------------------------------------------------
-section "Normal-form non-GC structures"
+section "Compact normal form"
 ------------------------------------------------------------------------
 
-primtype Struct#
+primtype Compact#
 
-primop  StructNewOp "structNew#" GenPrimOp
-   Word# -> State# RealWorld -> (# State# RealWorld, Struct# #)
+primop  CompactNewOp "compactNew#" GenPrimOp
+   Word# -> State# RealWorld -> (# State# RealWorld, Compact# #)
    with
    has_side_effects = True
    out_of_line      = True
 
-primop  StructAppendOp "structAppend#" GenPrimOp
-   Struct# -> a -> State# RealWorld -> (# State# RealWorld, Addr# #)
+primop  CompactAppendOp "compactAppend#" GenPrimOp
+   Compact# -> a -> State# RealWorld -> (# State# RealWorld, Addr# #)
    with
    has_side_effects = True
    out_of_line      = True
 
-primop  StructResizeOp "structResize#" GenPrimOp
-   Struct# -> a -> Word# -> State# RealWorld ->
-   (# State# RealWorld, Struct#, Addr# #)
+primop  CompactResizeOp "compactResize#" GenPrimOp
+   Compact# -> a -> Word# -> State# RealWorld ->
+   (# State# RealWorld, Compact#, Addr# #)
    with
    has_side_effects = True
    out_of_line      = True

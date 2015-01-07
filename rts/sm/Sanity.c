@@ -424,14 +424,14 @@ checkClosure( StgClosure* p )
         return sizeofW(StgTRecChunk);
       }
 
-    case NFDATA_STRUCT:
+    case COMPACT_NFDATA:
       {
-        StgNFDataStruct *str = (StgNFDataStruct *)p;
+        StgCompactNFData *str = (StgCompactNFData *)p;
 
         ASSERT(str->allocatedW > 0);
-        ASSERT(str->free >= (StgPtr)str + sizeofW(StgNFDataStruct));
+        ASSERT(str->free >= (StgPtr)str + sizeofW(StgCompactNFData));
         ASSERT(str->free <= (StgPtr)str + str->allocatedW);
-        return nfdata_struct_sizeW(str);
+        return compact_nfdata_sizeW(str);
       }
 
     default:

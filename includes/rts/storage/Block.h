@@ -153,8 +153,8 @@ typedef struct bdescr_ {
 #define BF_KNOWN     128
 /* Block was swept in the last generation */
 #define BF_SWEPT     256
-/* Block is part of a NFDataStruct */
-#define BF_STRUCT    512
+/* Block is part of a Compact */
+#define BF_COMPACT   512
 /* Maximum flag value (do not define anything higher than this!) */
 #define BF_FLAG_MAX  (1 << 15)
 

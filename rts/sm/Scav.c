@@ -780,11 +780,11 @@ scavenge_block (bdescr *bd)
         break;
       }
 
-    case NFDATA_STRUCT:
-        // NFData structures contain only pointers within the structure,
+    case COMPACT_NFDATA:
+        // CompactNFData blocks contain only pointers within the block,
         // there is nothing to scavenge and we can consider them opaque
         // blobs
-        p += nfdata_struct_sizeW((StgNFDataStruct*) p);
+        p += compact_nfdata_sizeW((StgCompactNFData*) p);
         break;
 
     default:

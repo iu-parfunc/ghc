@@ -1897,29 +1897,29 @@ stg_deRefStablePtrzh ( P_ sp )
 }
 
 /* -----------------------------------------------------------------------------
-   NFData struct primitives
+   CompactNFData primitives
    -------------------------------------------------------------------------  */
 
-stg_structNewzh ( W_ size )
+stg_compactNewzh ( W_ size )
 {
     P_ str;
-    ("ptr" str) = ccall structNew(MyCapability() "ptr", size);
+    ("ptr" str) = ccall compactNew(MyCapability() "ptr", size);
     return (str);
 }
 
-stg_structAppendzh ( P_ str, P_ val )
+stg_compactAppendzh ( P_ str, P_ val )
 {
     P_ root;
     /* ptr hint because root after all is a GC pointer, even if we represent it
        as a Addr# */
-    ("ptr" root) = ccall structAppend(str "ptr", val "ptr");
+    ("ptr" root) = ccall compactAppend(str "ptr", val "ptr");
     return (root);
 }
 
-stg_structResizzezh ( P_ str, P_ oldRoot, W_ new_size )
+stg_compactResizzezh ( P_ str, P_ oldRoot, W_ new_size )
 {
     P_ new_str, new_root;
-    ("ptr" new_str) = ccall structResize(MyCapability() "ptr", str "ptr", new_size);
+    ("ptr" new_str) = ccall compactResize(MyCapability() "ptr", str "ptr", new_size);
     new_root = oldRoot - str + new_str;
     return (new_str, new_root);
 }

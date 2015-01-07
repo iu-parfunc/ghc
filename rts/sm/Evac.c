@@ -25,7 +25,7 @@
 #include "Prelude.h"
 #include "Trace.h"
 #include "LdvProfile.h"
-#include "Struct.h"
+#include "CNF.h"
 
 #if defined(PROF_SPIN) && defined(THREADED_RTS) && defined(PARALLEL_GC)
 StgWord64 whitehole_spin = 0;
@@ -310,11 +310,11 @@ evacuate_large(StgPtr p)
   // these objects, because they aren't allowed to contain any outgoing
   // pointers.  For these blocks, we skip the scavenge stage and put
   // them straight on the scavenged_large_objects list.
-  if (bd->flags & (BF_PINNED | BF_STRUCT)) {
+  if (bd->flags & (BF_PINNED | BF_COMPACT)) {
       if (bd->flags & BF_PINNED) {
           ASSERT(get_itbl((StgClosure *)p)->type == ARR_WORDS);
       } else {
-          ASSERT(get_itbl((StgClosure *)p)->type == NFDATA_STRUCT);
+          ASSERT(get_itbl((StgClosure *)p)->type == COMPACT_NFDATA);
       }
 
       if (new_gen != gen) { ACQUIRE_SPIN_LOCK(&new_gen->sync); }
@@ -330,7 +330,7 @@ evacuate_large(StgPtr p)
 }
 
 /* ----------------------------------------------------------------------------
-   Evacuate an object inside a NFDataStruct
+   Evacuate an object inside a CompactNFData
 
    Don't actually evacuate the object. Instead, evacuate the structure
    (which is a large object, so it is just relinked onto the new list
@@ -340,13 +340,13 @@ evacuate_large(StgPtr p)
    as the struct itself all the time.
    ------------------------------------------------------------------------- */
 STATIC_INLINE void
-evacuate_struct (StgPtr p)
+evacuate_compact (StgPtr p)
 {
-    StgNFDataStruct *str;
+    StgCompactNFData *str;
     bdescr *bd;
     nat gen_no;
 
-    str = objectGetStruct((StgClosure*)p);
+    str = objectGetCompact((StgClosure*)p);
 
     bd = Bdescr((StgPtr)str);
     gen_no = bd->gen_no;
@@ -367,7 +367,7 @@ evacuate_struct (StgPtr p)
     evacuate_large((StgPtr)str);
 
     // Note: the object did not move in memory, because it lives
-    // in pinned (BF_STRUCT) allocation, so we do not need to rewrite it
+    // in pinned (BF_COMPACT) allocation, so we do not need to rewrite it
     // or muck with forwarding pointers
     // Also there is no tag to worry about on the struct (tags are used
     // for constructors and functions, but a struct is neither). There
@@ -537,8 +537,8 @@ loop:
   // right thing for objects that are half way in the middle of the first
   // block of a struct (and would be treated as large objects even though
   // they are not)
-  if ((bd->flags & BF_STRUCT) != 0) {
-      evacuate_struct((P_)q);
+  if ((bd->flags & BF_COMPACT) != 0) {
+      evacuate_compact((P_)q);
       return;
   }
 
@@ -819,11 +819,11 @@ loop:
       copy(p,info,q,sizeofW(StgTRecChunk),gen_no);
       return;
 
-  case NFDATA_STRUCT:
-      // NFDataStruct objects are at least one block plus the header
+  case COMPACT_NFDATA:
+      // CompactNFData objects are at least one block plus the header
       // so they are larger than the large_object_threshold (80% of
       // block size) and never copied by value
-      barf("evacuate: nfdata structure is not large");
+      barf("evacuate: compact nfdata is not large");
       return;
   default:
     barf("evacuate: strange closure type %d", (int)(INFO_PTR_TO_STRUCT(info)->type));

@@ -1308,7 +1308,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_MUT_VAR_CLEAN_info)                             \
       SymI_HasProto(stg_MUT_VAR_DIRTY_info)                             \
       SymI_HasProto(stg_WEAK_info)                                      \
-      SymI_HasProto(stg_NFDATA_STRUCT_info)                             \
+      SymI_HasProto(stg_COMPACT_NFDATA_info)                            \
       SymI_HasProto(stg_ap_v_info)                                      \
       SymI_HasProto(stg_ap_f_info)                                      \
       SymI_HasProto(stg_ap_d_info)                                      \
@@ -1402,9 +1402,9 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_yieldzh)                                        \
       SymI_NeedsProto(stg_interp_constr_entry)                          \
       SymI_HasProto(stg_arg_bitmaps)                                    \
-      SymI_HasProto(stg_structNewzh)                                    \
-      SymI_HasProto(stg_structAppendzh)                                 \
-      SymI_HasProto(stg_structResizzezh)                                \
+      SymI_HasProto(stg_compactNewzh)                                   \
+      SymI_HasProto(stg_compactAppendzh)                                \
+      SymI_HasProto(stg_compactResizzezh)                               \
       SymI_HasProto(large_alloc_lim)                                    \
       SymI_HasProto(g0)                                                 \
       SymI_HasProto(allocate)                                           \

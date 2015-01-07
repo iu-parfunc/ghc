@@ -1072,9 +1072,9 @@ heapCensusChain( Census *census, bdescr *bd )
                 size = sizeofW(StgTRecChunk);
                 break;
 
-            case NFDATA_STRUCT:
+            case COMPACT_NFDATA:
                 prim = rtsTrue;
-                size = nfdata_struct_sizeW((StgNFDataStruct*)p);
+                size = compact_nfdata_sizeW((StgCompactNFData*)p);
                 break;
 
             default:
