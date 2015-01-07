@@ -276,7 +276,7 @@ simple_scavenge (StgCompactNFData *str, HashTable *hash, StgPtr p)
 }
 
 StgPtr
-compactAppend (StgCompactNFData *str, StgClosure *what)
+compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
 {
     rtsBool ok;
     StgClosure *root;
@@ -293,12 +293,16 @@ compactAppend (StgCompactNFData *str, StgClosure *what)
     ASSERT((P_)root == start ||
            (!HEAP_ALLOCED(root) && root == UNTAG_CLOSURE(what)));
 
-    hash = allocHashTable ();
-    insertHashTable(hash, (StgWord)UNTAG_CLOSURE(what), root);
+    if (share) {
+        hash = allocHashTable ();
+        insertHashTable(hash, (StgWord)UNTAG_CLOSURE(what), root);
+    } else
+        hash = NULL;
 
     ok = simple_scavenge(str, hash, start);
 
-    freeHashTable(hash, NULL);
+    if (share)
+        freeHashTable(hash, NULL);
 
     // Return the tagged pointer for outside use, or NULL
     // if failed

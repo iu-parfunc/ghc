@@ -30,7 +30,9 @@ module Data.Compact (
   compactGetRoot,
 
   compactNew,
+  compactNewNoShare,
   compactAppend,
+  compactAppendNoShare,
   compactResize,
   ) where
 
@@ -45,6 +47,7 @@ import GHC.Prim (Compact#,
                  addrToAny#,
                  State#,
                  RealWorld,
+                 Int#,
                  )
 -- We need to import Word from GHC.Types to see the representation
 -- and to able to access the Word# to pass down the primops
@@ -73,21 +76,33 @@ makeCompact buffer rootAddr =
   case addrToAny# rootAddr of
     (# root #) -> Compact buffer root
 
-compactAppendInternal :: NFData a => Compact# -> a -> State# RealWorld ->
+compactAppendInternal :: NFData a => Compact# -> a -> Int# -> State# RealWorld ->
                         (# State# RealWorld, Maybe (Compact a) #)
-compactAppendInternal buffer root s =
+compactAppendInternal buffer root share s =
   case force root of
-    !eval -> case compactAppend# buffer eval s of
+    !eval -> case compactAppend# buffer eval share s of
       (# s', rootAddr #) -> (# s', maybeMakeCompact buffer rootAddr #)
 
+compactAppendInternalIO :: NFData a => Int# -> Compact b -> a -> IO (Maybe (Compact a))
+compactAppendInternalIO share str root =
+  IO (\s -> compactAppendInternal (compactGetBuffer str) root share s)
+
 compactAppend :: NFData a => Compact b -> a -> IO (Maybe (Compact a))
-compactAppend str root =
-  IO (\s -> compactAppendInternal (compactGetBuffer str) root s)
+compactAppend = compactAppendInternalIO 1#
+
+compactAppendNoShare :: NFData a => Compact b -> a -> IO (Maybe (Compact a))
+compactAppendNoShare = compactAppendInternalIO 0#
+
+compactNewInternal :: NFData a => Int# -> Word -> a -> IO (Maybe (Compact a))
+compactNewInternal share (W# size) root =
+  IO (\s -> case compactNew# size s of
+         (# s', buffer #) -> compactAppendInternal buffer root share s' )
 
 compactNew :: NFData a => Word -> a -> IO (Maybe (Compact a))
-compactNew (W# size) root =
-  IO (\s -> case compactNew# size s of
-         (# s', buffer #) -> compactAppendInternal buffer root s' )
+compactNew = compactNewInternal 1#
+
+compactNewNoShare :: NFData a => Word -> a -> IO (Maybe (Compact a))
+compactNewNoShare = compactNewInternal 0#
 
 compactResize :: Compact a -> Word -> IO (Compact a)
 compactResize (Compact oldBuffer oldRoot) (W# new_size) =

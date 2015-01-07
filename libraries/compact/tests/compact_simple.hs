@@ -14,9 +14,10 @@ assertEquals expected actual =
   else assertFail $ "expected " ++ (show expected)
        ++ ", got " ++ (show actual)
 
-main = do
+-- test :: (Word -> a -> IO (Maybe (Compact a))) -> IO ()
+test func = do
   let val = ("hello", 1, 42, 42, Just 42) :: (String, Int, Int, Integer, Maybe Int)
-  maybeStr <- compactNew 4096 val
+  maybeStr <- func 4096 val
   case maybeStr of
     Nothing -> assertFail "failed to create the compact"
     Just str -> do
@@ -29,4 +30,8 @@ main = do
       assertEquals ("hello", 1, 42, 42, Just 42) val
       -- check again the value in the compact
       assertEquals ("hello", 1, 42, 42, Just 42) (compactGetRoot str)
+
+main = do
+  test compactNew
+  test compactNewNoShare
 

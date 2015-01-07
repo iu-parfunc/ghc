@@ -1907,12 +1907,12 @@ stg_compactNewzh ( W_ size )
     return (str);
 }
 
-stg_compactAppendzh ( P_ str, P_ val )
+stg_compactAppendzh ( P_ str, P_ val , W_ share)
 {
     P_ root;
     /* ptr hint because root after all is a GC pointer, even if we represent it
        as a Addr# */
-    ("ptr" root) = ccall compactAppend(str "ptr", val "ptr");
+    ("ptr" root) = ccall compactAppend(str "ptr", val "ptr", share);
     return (root);
 }
 
