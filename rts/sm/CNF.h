@@ -19,10 +19,11 @@
 StgCompactNFData *compactNew   (Capability      *cap,
                                 StgWord          size);
 StgPtr            compactAppend(StgCompactNFData *str,
-                                StgClosure      *what);
-StgCompactNFData *compactResize(Capability      *cap,
+                                StgClosure       *what,
+                                StgWord           share);
+StgCompactNFData *compactResize(Capability       *cap,
                                 StgCompactNFData *str,
-                                StgWord          new_size);
+                                StgWord           new_size);
 
 INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure);
 INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure)
