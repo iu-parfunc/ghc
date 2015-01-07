@@ -533,17 +533,7 @@ loop:
 
   bd = Bdescr((P_)q);
 
-  // Check for struct before checking for large, this allows doing the
-  // right thing for objects that are half way in the middle of the first
-  // block of a struct (and would be treated as large objects even though
-  // they are not)
-  if ((bd->flags & BF_COMPACT) != 0) {
-      evacuate_compact((P_)q);
-      return;
-  }
-
-  if ((bd->flags & (BF_LARGE | BF_MARKED | BF_EVACUATED)) != 0) {
-
+  if ((bd->flags & (BF_LARGE | BF_MARKED | BF_EVACUATED | BF_COMPACT)) != 0) {
       // pointer into to-space: just return it.  It might be a pointer
       // into a generation that we aren't collecting (> N), or it
       // might just be a pointer into to-space.  The latter doesn't
@@ -558,6 +548,15 @@ loop:
               gct->failed_to_evac = rtsTrue;
               TICK_GC_FAILED_PROMOTION();
           }
+          return;
+      }
+
+      // Check for compact before checking for large, this allows doing the
+      // right thing for objects that are half way in the middle of the first
+      // block of a compact (and would be treated as large objects even though
+      // they are not)
+      if (bd->flags & BF_COMPACT) {
+          evacuate_compact((P_)q);
           return;
       }
 
