@@ -128,18 +128,39 @@ unroll_memcpy(StgPtr to, StgPtr from, StgWord size)
 }
 
 static rtsBool
+atomic_allocate (StgCompactNFData *str, StgWord sizeW, StgPtr *at)
+{
+    StgPtr top = ((StgPtr)str) + str->allocatedW;
+    StgPtr expected_free, free;
+
+    // There might be a better way to do this
+
+ retry:
+    if (str->free + sizeW > top)
+        return rtsFalse;
+
+    expected_free = str->free;
+    free = (StgPtr)cas((StgVolatilePtr)&str->free, (StgWord)expected_free,
+                       (StgWord)(expected_free + sizeW));
+
+    if (free != expected_free)
+        goto retry;
+
+    *at = free;
+
+    return rtsTrue;
+}
+
+static rtsBool
 copy_tag (StgCompactNFData *str, HashTable *hash, StgClosure **p, StgClosure *from, StgWord tag)
 {
     StgPtr to;
     StgWord sizeW;
 
     sizeW = closure_sizeW(from);
-    to = str->free;
 
-    if (to + sizeW >= ((StgPtr)str) + str->allocatedW)
+    if (!atomic_allocate(str, sizeW, &to))
         return rtsFalse;
-
-    str->free += sizeW;
 
     // unroll memcpy for small sizes because we can
     // benefit of known alignment
