@@ -80,7 +80,6 @@ processHeapClosureForDead( StgClosure *c )
     case PRIM:
     case MUT_PRIM:
     case TREC_CHUNK:
-    case NFDATA_STRUCT:
         return size;
 
         /*
@@ -144,6 +143,7 @@ processHeapClosureForDead( StgClosure *c )
     case RET_BIG:
         // others
     case INVALID_OBJECT:
+    case COMPACT_NFDATA:
     default:
         barf("Invalid object in processHeapClosureForDead(): %d", info->type);
         return 0;

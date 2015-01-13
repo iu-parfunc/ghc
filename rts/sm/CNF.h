@@ -24,6 +24,8 @@ StgPtr            compactAppend(StgCompactNFData *str,
 StgCompactNFData *compactResize(Capability       *cap,
                                 StgCompactNFData *str,
                                 StgWord           new_size);
+void              compactFree  (StgCompactNFData *str);
+void              compactMarkKnown (StgCompactNFData *str);
 
 INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure);
 INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure)
@@ -43,5 +45,7 @@ INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure)
 
     return (StgCompactNFData*)(head_block->start);
 }
+
+#include "EndPrivate.h"
 
 #endif // SM_COMPACT_H

@@ -246,7 +246,7 @@ copy(StgClosure **p, const StgInfoTable *info,
 
    This just consists of removing the object from the (doubly-linked)
    gen->large_objects list, and linking it on to the (singly-linked)
-   gen->new_large_objects list, from where it will be scavenged later.
+   gct->todo_large_objects list, from where it will be scavenged later.
 
    Convention: bd->flags has BF_EVACUATED set for a large object
    that has been evacuated, or unset otherwise.
@@ -344,14 +344,16 @@ evacuate_compact (StgPtr p)
 {
     StgCompactNFData *str;
     bdescr *bd;
-    nat gen_no;
+    generation *gen, *new_gen;
+    nat gen_no, new_gen_no;
 
     str = objectGetCompact((StgClosure*)p);
+    ASSERT(get_itbl((StgClosure*)str)->type == COMPACT_NFDATA);
 
     bd = Bdescr((StgPtr)str);
     gen_no = bd->gen_no;
 
-    // already evacuated? (evacuate_large does the same check,
+    // already evacuated? (we're about to do the same check,
     // but we avoid taking the spin-lock)
     if (bd->flags & BF_EVACUATED) {
         /* Don't forget to set the gct->failed_to_evac flag if we didn't get
@@ -364,7 +366,56 @@ evacuate_compact (StgPtr p)
         return;
     }
 
-    evacuate_large((StgPtr)str);
+    gen = bd->gen;
+    gen_no = bd->gen_no;
+    ACQUIRE_SPIN_LOCK(&gen->sync);
+
+    // already evacuated?
+    if (bd->flags & BF_EVACUATED) {
+        /* Don't forget to set the gct->failed_to_evac flag if we didn't get
+         * the desired destination (see comments in evacuate()).
+         */
+        if (gen_no < gct->evac_gen_no) {
+            gct->failed_to_evac = rtsTrue;
+            TICK_GC_FAILED_PROMOTION();
+        }
+        RELEASE_SPIN_LOCK(&gen->sync);
+        return;
+    }
+
+    // remove from large_object list
+    if (bd->u.back) {
+        bd->u.back->link = bd->link;
+    } else { // first object in the list
+        gen->compact_objects = bd->link;
+    }
+    if (bd->link) {
+        bd->link->u.back = bd->u.back;
+    }
+
+    /* link it on to the evacuated compact object list of the destination gen
+     */
+    new_gen_no = bd->dest_no;
+
+    if (new_gen_no < gct->evac_gen_no) {
+        if (gct->eager_promotion) {
+            new_gen_no = gct->evac_gen_no;
+        } else {
+            gct->failed_to_evac = rtsTrue;
+        }
+    }
+
+    new_gen = &generations[new_gen_no];
+
+    bd->flags |= BF_EVACUATED;
+    initBdescr(bd, new_gen, new_gen->to);
+
+    if (new_gen != gen) { ACQUIRE_SPIN_LOCK(&new_gen->sync); }
+    dbl_link_onto(bd, &new_gen->live_compact_objects);
+    new_gen->n_live_compact_blocks += bd->blocks;
+    if (new_gen != gen) { RELEASE_SPIN_LOCK(&new_gen->sync); }
+
+    RELEASE_SPIN_LOCK(&gen->sync);
 
     // Note: the object did not move in memory, because it lives
     // in pinned (BF_COMPACT) allocation, so we do not need to rewrite it
