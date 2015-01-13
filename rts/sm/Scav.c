@@ -781,10 +781,10 @@ scavenge_block (bdescr *bd)
       }
 
     case COMPACT_NFDATA:
-        // CompactNFData blocks contain only pointers within the block,
-        // there is nothing to scavenge and we can consider them opaque
-        // blobs
-        p += compact_nfdata_sizeW((StgCompactNFData*) p);
+        // CompactNFData blocks live in compact lists, which we don't
+        // scavenge, because there nothing to scavenge in them
+        // so we should never ever see them
+        barf("scavenge: found unexpected Compact structure");
         break;
 
     default:
@@ -1948,7 +1948,7 @@ scavenge_large (gen_workspace *ws)
 
         // take this object *off* the large objects list and put it on
         // the scavenged large objects list.  This is so that we can
-        // treat new_large_objects as a stack and push new objects on
+        // treat todo_large_objects as a stack and push new objects on
         // the front when evacuating.
         ws->todo_large_objects = bd->link;
 

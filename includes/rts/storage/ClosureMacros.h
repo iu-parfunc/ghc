@@ -338,8 +338,8 @@ EXTERN_INLINE StgWord bco_sizeW ( StgBCO *bco );
 EXTERN_INLINE StgWord bco_sizeW ( StgBCO *bco )
 { return bco->size; }
 
-EXTERN_INLINE StgWord compact_nfdata_sizeW ( StgCompactNFData *str );
-EXTERN_INLINE StgWord compact_nfdata_sizeW ( StgCompactNFData *str )
+EXTERN_INLINE StgWord compact_nfdata_full_sizeW ( StgCompactNFData *str );
+EXTERN_INLINE StgWord compact_nfdata_full_sizeW ( StgCompactNFData *str )
 { return str->allocatedW; }
 
 /*
@@ -405,7 +405,10 @@ closure_sizeW_ (StgClosure *p, StgInfoTable *info)
     case TREC_CHUNK:
         return sizeofW(StgTRecChunk);
     case COMPACT_NFDATA:
-        return compact_nfdata_sizeW((StgCompactNFData*)p);
+        // Nothing should ever call closure_sizeW() on a StgCompactNFData
+        // because CompactNFData is a magical object/list-of-objects that
+        // requires special paths pretty much everywhere in the GC
+        return -1;
     default:
         return sizeW_fromITBL(info);
     }

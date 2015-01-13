@@ -100,6 +100,11 @@ typedef struct generation_ {
     memcount       n_new_large_words;   // words of new large objects
                                         // (for doYouWantToGC())
 
+    bdescr *       compact_objects;     // compact objects chain
+                                        // (the second is linked from the
+                                        // closure object and so on)
+    memcount       n_compact_blocks;    // no. of blocks used by all compacts
+
     memcount       max_blocks;          // max blocks
 
     StgTSO *       threads;             // threads in this gen
@@ -135,6 +140,9 @@ typedef struct generation_ {
 
     bdescr *     scavenged_large_objects;  // live large objs after GC (d-link)
     memcount     n_scavenged_large_blocks; // size (not count) of above
+
+    bdescr *     live_compact_objects;  // live compact objs after GC (d-link)
+    memcount     n_live_compact_blocks; // size (not count) of above
 
     bdescr *     bitmap;                // bitmap for compacting collection
 

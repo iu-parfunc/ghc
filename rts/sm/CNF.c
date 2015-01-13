@@ -14,8 +14,11 @@
 #include "PosixSource.h"
 #include <string.h>
 #include "Rts.h"
+#include "RtsUtils.h"
 
+#include "Capability.h"
 #include "GC.h"
+#include "Storage.h"
 #include "CNF.h"
 #include "Hash.h"
 
@@ -27,13 +30,61 @@ compactAllocate(Capability *cap, StgWord aligned_size)
     nat n_blocks;
 
     n_blocks = aligned_size / BLOCK_SIZE;
-    self = (StgCompactNFData*) allocate(cap, aligned_size / sizeof(StgWord));
 
+    // Attempting to allocate an object larger than maxHeapSize
+    // should definitely be disallowed.  (bug #1791)
+    if ((RtsFlags.GcFlags.maxHeapSize > 0 &&
+         n_blocks >= RtsFlags.GcFlags.maxHeapSize) ||
+        n_blocks >= HS_INT32_MAX)   // avoid overflow when
+                                    // calling allocGroup() below
+    {
+        heapOverflow();
+        // heapOverflow() doesn't exit (see #2592), but we aren't
+        // in a position to do a clean shutdown here: we
+        // either have to allocate the memory or exit now.
+        // Allocating the memory would be bad, because the user
+        // has requested that we not exceed maxHeapSize, so we
+        // just exit.
+        stg_exit(EXIT_HEAPOVERFLOW);
+    }
+
+    ACQUIRE_SM_LOCK;
+    block = allocGroup(n_blocks);
+    dbl_link_onto(block, &g0->compact_objects);
+    g0->n_compact_blocks += block->blocks;
+    RELEASE_SM_LOCK;
+
+    cap->total_allocated += aligned_size / sizeof(StgWord);
+
+    self = (StgCompactNFData*) block->start;
     SET_INFO((StgClosure*)self, &stg_COMPACT_NFDATA_info);
-    for (block = Bdescr((P_)self); n_blocks > 0; block++, n_blocks--)
-        block->flags |= BF_COMPACT;
+
+    initBdescr(block, g0, g0);
+    for ( ; n_blocks > 0; block++, n_blocks--)
+        block->flags = BF_COMPACT;
 
     return self;
+}
+
+void
+compactFree(StgCompactNFData *str)
+{
+    bdescr *bd;
+
+    bd = Bdescr((StgPtr)str);
+    ASSERT((bd->flags & BF_EVACUATED) == 0);
+
+    freeGroup(bd);
+}
+
+void
+compactMarkKnown(StgCompactNFData *str)
+{
+    bdescr *bd;
+
+    bd = Bdescr((StgPtr)str);
+
+    bd->flags |= BF_KNOWN;
 }
 
 StgCompactNFData *
