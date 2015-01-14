@@ -38,12 +38,11 @@ main = do
       case maybeStr2 of
         Just _ -> assertFail "appended the compact without space"
         Nothing -> do
-          str3 <- compactResize str1 (2560*8)
-          maybeStr4 <- compactAppend str3 v2
-          case maybeStr4 of
+          compactResize str1 (2560*8)
+          maybeStr3 <- compactAppend str1 v2
+          case maybeStr3 of
             Nothing -> assertFail "failed to append to the resized compact"
-            Just str4 -> do
+            Just str3 -> do
               assertEquals v1 (compactGetRoot str1)
-              assertEquals v1 (compactGetRoot str3)
-              assertEquals v2 (compactGetRoot str4)
+              assertEquals v2 (compactGetRoot str3)
 

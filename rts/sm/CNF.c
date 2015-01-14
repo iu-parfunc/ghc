@@ -22,10 +22,10 @@
 #include "CNF.h"
 #include "Hash.h"
 
-static StgCompactNFData *
-compactAllocate(Capability *cap, StgWord aligned_size)
+static StgCompactNFDataBlock *
+compactAllocateBlock(Capability *cap, StgWord aligned_size, rtsBool linkGeneration)
 {
-    StgCompactNFData *self;
+    StgCompactNFDataBlock *self;
     bdescr *block;
     nat n_blocks;
 
@@ -50,16 +50,18 @@ compactAllocate(Capability *cap, StgWord aligned_size)
 
     ACQUIRE_SM_LOCK;
     block = allocGroup(n_blocks);
-    dbl_link_onto(block, &g0->compact_objects);
+    if (linkGeneration)
+        dbl_link_onto(block, &g0->compact_objects);
     g0->n_compact_blocks += block->blocks;
     RELEASE_SM_LOCK;
 
     cap->total_allocated += aligned_size / sizeof(StgWord);
 
-    self = (StgCompactNFData*) block->start;
-    SET_INFO((StgClosure*)self, &stg_COMPACT_NFDATA_info);
+    self = (StgCompactNFDataBlock*) block->start;
+    self->next = NULL;
 
-    initBdescr(block, g0, g0);
+    if (linkGeneration)
+        initBdescr(block, g0, g0);
     for ( ; n_blocks > 0; block++, n_blocks--)
         block->flags = BF_COMPACT;
 
@@ -70,62 +72,75 @@ void
 compactFree(StgCompactNFData *str)
 {
     bdescr *bd;
+    StgCompactNFDataBlock *block, *next;
 
-    bd = Bdescr((StgPtr)str);
-    ASSERT((bd->flags & BF_EVACUATED) == 0);
-
-    freeGroup(bd);
+    block = (StgCompactNFDataBlock*) ((W_)str - sizeof(StgCompactNFDataBlock));
+    for ( ; block; block = next) {
+        next = block->next;
+        bd = Bdescr((StgPtr)block);
+        ASSERT((bd->flags & BF_EVACUATED) == 0);
+        freeGroup(bd);
+    }
 }
 
 void
 compactMarkKnown(StgCompactNFData *str)
 {
     bdescr *bd;
+    StgCompactNFDataBlock *block;
 
-    bd = Bdescr((StgPtr)str);
-
-    bd->flags |= BF_KNOWN;
+    block = (StgCompactNFDataBlock*) ((W_)str - sizeof(StgCompactNFDataBlock));
+    for ( ; block; block = block->next) {
+        bd = Bdescr((StgPtr)block);
+        bd->flags |= BF_KNOWN;
+    }
 }
 
 StgCompactNFData *
 compactNew (Capability *cap, StgWord size)
 {
     StgWord aligned_size;
+    StgCompactNFDataBlock *block;
     StgCompactNFData *self;
+    bdescr *bd;
 
-    aligned_size = BLOCK_ROUND_UP(size + sizeof(StgCompactNFData));
-    self = compactAllocate(cap, aligned_size);
+    aligned_size = BLOCK_ROUND_UP(size + sizeof(StgCompactNFDataBlock)
+                                  + sizeof(StgCompactNFDataBlock));
+    block = compactAllocateBlock(cap, aligned_size, rtsTrue);
 
-    self->allocatedW = aligned_size / sizeof(StgWord);
-    self->free = (StgPtr)((W_)self + sizeof(StgCompactNFData));
-    ASSERT (self->free == (StgPtr)self + sizeofW(StgCompactNFData));
+    self = (StgCompactNFData*)((W_)block + sizeof(StgCompactNFDataBlock));
+    SET_INFO((StgClosure*)self, &stg_COMPACT_NFDATA_info);
+    self->totalW = aligned_size / sizeof(StgWord);
+    self->nursery = block;
+    self->last = block;
+    block->owner = self;
+
+    bd = Bdescr((P_)block);
+    bd->free = (StgPtr)((W_)self + sizeof(StgCompactNFData));
+    ASSERT (bd->free == (StgPtr)self + sizeofW(StgCompactNFData));
 
     return self;
 }
 
-StgCompactNFData *
+void
 compactResize (Capability *cap, StgCompactNFData *str, StgWord new_size)
 {
-    StgWord current_size, aligned_size;
-    StgCompactNFData *self;
+    StgWord aligned_size;
+    StgCompactNFDataBlock *block;
+    bdescr *bd;
 
-    aligned_size = BLOCK_ROUND_UP(new_size + sizeof(StgCompactNFData));
-    current_size = str->allocatedW * sizeof(StgWord);
+    aligned_size = BLOCK_ROUND_UP(new_size + sizeof(StgCompactNFDataBlock));
+    block = compactAllocateBlock(cap, aligned_size, rtsFalse);
 
-    // It might be that new_size was still covered by the alignment
-    // during the initial allocation (or maybe the user is asking to
-    // shrink? we don't do that)
-    if (aligned_size <= current_size)
-        return str;
+    str->totalW += aligned_size / sizeof(StgWord);
+    block->owner = str;
 
-    self = compactAllocate(cap, aligned_size);
+    str->last->next = block;
+    str->last = block;
 
-    memcpy (self, str, str->allocatedW * sizeof(StgWord));
-
-    self->allocatedW = aligned_size / sizeof(StgWord);
-    self->free = (StgPtr)((W_)str->free - (W_)str + (W_)self);
-
-    return self;
+    bd = Bdescr((P_)block);
+    bd->free = (StgPtr)((W_)block + sizeof(StgCompactNFDataBlock));
+    ASSERT (bd->free == (StgPtr)block + sizeofW(StgCompactNFDataBlock));
 }
 
 /* This is a simple reimplementation of the copying GC.
@@ -179,19 +194,22 @@ unroll_memcpy(StgPtr to, StgPtr from, StgWord size)
 }
 
 static rtsBool
-atomic_allocate (StgCompactNFData *str, StgWord sizeW, StgPtr *at)
+atomic_allocate (StgCompactNFDataBlock *block, StgWord sizeW, StgPtr *at)
 {
-    StgPtr top = ((StgPtr)str) + str->allocatedW;
+    bdescr *bd;
+    StgPtr top;
     StgPtr expected_free, free;
 
     // There might be a better way to do this
 
+    bd = Bdescr((StgPtr)block);
+    top = bd->start + BLOCK_SIZE_W * bd->blocks;
  retry:
-    if (str->free + sizeW > top)
+    if (bd->free + sizeW > top)
         return rtsFalse;
 
-    expected_free = str->free;
-    free = (StgPtr)cas((StgVolatilePtr)&str->free, (StgWord)expected_free,
+    expected_free = bd->free;
+    free = (StgPtr)cas((StgVolatilePtr)&bd->free, (StgWord)expected_free,
                        (StgWord)(expected_free + sizeW));
 
     if (free != expected_free)
@@ -203,6 +221,35 @@ atomic_allocate (StgCompactNFData *str, StgWord sizeW, StgPtr *at)
 }
 
 static rtsBool
+allocate_loop (StgCompactNFData *str, StgWord sizeW, StgPtr *at)
+{
+    while (str->nursery != NULL) {
+        if (atomic_allocate(str->nursery, sizeW, at))
+            return rtsTrue;
+
+        // There is no space in this block, treat it as fully occupied
+        // and move to the next in the chain
+        // This is slightly incorrect in that we could fit a smaller
+        // closure in the free space still in the nursery, but to be
+        // able to revert failed appends we maintain the invariant that
+        // only the nursery is partially occupied, everything before
+        // it is full and everything after is empty (so the revert code
+        // restores the nursery to the values it had at the beginning
+        // and empties all blocks following it)
+
+        // this is not threadsafe, because a thread failing
+        // to append can revert the concurrent append of a second thread
+        // (which would lead to corruption because the second thread
+        // thinks it has a good pointer)
+        // the only correct way to fix this (without dealing with holes
+        // in the blocks) is to lock the entire structure around appends,
+        // which is undesirable
+        str->nursery = str->nursery->next;
+    }
+
+    return rtsFalse;
+}
+static rtsBool
 copy_tag (StgCompactNFData *str, HashTable *hash, StgClosure **p, StgClosure *from, StgWord tag)
 {
     StgPtr to;
@@ -210,7 +257,7 @@ copy_tag (StgCompactNFData *str, HashTable *hash, StgClosure **p, StgClosure *fr
 
     sizeW = closure_sizeW(from);
 
-    if (!atomic_allocate(str, sizeW, &to))
+    if (!allocate_loop(str, sizeW, &to))
         return rtsFalse;
 
     // unroll memcpy for small sizes because we can
@@ -231,7 +278,10 @@ copy_tag (StgCompactNFData *str, HashTable *hash, StgClosure **p, StgClosure *fr
 STATIC_INLINE rtsBool
 object_in_compact (StgCompactNFData *str, StgClosure *p)
 {
-    return ((P_)p >= (P_)str && (P_)p < str->free);
+    bdescr *bd = Bdescr((P_)p);
+
+    return (bd->flags & BF_COMPACT) != 0 &&
+        objectGetCompact(p) == str;
 }
 
 static rtsBool
@@ -252,7 +302,7 @@ simple_evacuate (StgCompactNFData *str, HashTable *hash, StgClosure **p)
     if (!HEAP_ALLOCED(from))
         return rtsTrue;
 
-    // If the object referenced is already in the compact
+    // If the object referenced is already in this compact
     // (for example by reappending an object that was obtained
     // by compactGetRoot) then do nothing
     if (object_in_compact(str, from))
@@ -291,11 +341,12 @@ simple_evacuate (StgCompactNFData *str, HashTable *hash, StgClosure **p)
 }
 
 static rtsBool
-simple_scavenge (StgCompactNFData *str, HashTable *hash, StgPtr p)
+simple_scavenge_block (StgCompactNFData *str, StgCompactNFDataBlock *block, HashTable *hash, StgPtr p)
 {
     StgInfoTable *info;
+    bdescr *bd = Bdescr((P_)block);
 
-    while (p < str->free) {
+    while (p < bd->free) {
         ASSERT (LOOKS_LIKE_CLOSURE_PTR(p));
         info = get_itbl((StgClosure*)p);
 
@@ -347,6 +398,29 @@ simple_scavenge (StgCompactNFData *str, HashTable *hash, StgPtr p)
     return rtsTrue;
 }
 
+static rtsBool
+scavenge_loop (StgCompactNFData *str, StgCompactNFDataBlock *first_block, HashTable *hash, StgPtr p)
+{
+    // Scavenge the first block
+    if (!simple_scavenge_block(str, first_block, hash, p))
+        return rtsFalse;
+
+    // Now, if the nursery pointer did not change, we're done,
+    // otherwise we need to scavenge the next block in the chain
+    // we know that the next block was empty at the beginning,
+    // so we need to scavenge it entirely
+    // we also know that it does not contain a StgCompactNFData
+    // because that is only in the absolute first block in the chain
+    while (first_block != str->nursery) {
+        first_block = first_block->next;
+        if (!simple_scavenge_block(str, first_block, hash,
+                                   (P_)first_block + sizeof(StgCompactNFDataBlock)))
+            return rtsFalse;
+    }
+
+    return rtsTrue;
+}
+
 StgPtr
 compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
 {
@@ -355,15 +429,32 @@ compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
     StgClosure *tagged_root;
     StgPtr start;
     HashTable *hash;
+    StgCompactNFDataBlock *initial_nursery;
+    bdescr *nursery_bd;
+    bdescr *evaced_bd;
+    StgCompactNFDataBlock *evaced_block;
 
-    start = str->free;
+    // If what is not heap alloced (it is a static CONSTR)
+    // we will do nothing in simple_evacuate. But let's not
+    // bother at all to set up the allocation system
+    // (We ignore the tag because it doesn't make a difference as
+    // far as heap_alloced is concerned)
+    if (!HEAP_ALLOCED(what))
+        return (StgPtr)what;
+
+    initial_nursery = str->nursery;
+    ASSERT (initial_nursery != NULL);
+    nursery_bd = Bdescr((P_)initial_nursery);
+    start = nursery_bd->free;
     tagged_root = what;
     if (!simple_evacuate(str, NULL, &tagged_root))
         return NULL;
 
     root = UNTAG_CLOSURE(tagged_root);
-    ASSERT((P_)root == start ||
-           (!HEAP_ALLOCED(root) && root == UNTAG_CLOSURE(what)));
+    // evaced_block can be different from initial_nursery
+    // in case there wasn't enough space for the first
+    // evacuate
+    evaced_block = objectGetCompactBlock(root);
 
     if (share) {
         hash = allocHashTable ();
@@ -371,18 +462,25 @@ compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
     } else
         hash = NULL;
 
-    ok = simple_scavenge(str, hash, start);
+    ok = scavenge_loop(str, evaced_block, hash, (P_)root);
 
     if (share)
         freeHashTable(hash, NULL);
 
     // Return the tagged pointer for outside use, or NULL
     // if failed
-    if (ok) {
+    if (__builtin_expect(ok, rtsTrue)) {
         return (StgPtr)tagged_root;
     } else {
         // Undo any partial allocation
-        str->free = start;
+        nursery_bd->free = start;
+        str->nursery = initial_nursery;
+        for (initial_nursery = initial_nursery->next; initial_nursery;
+             initial_nursery = initial_nursery->next) {
+            nursery_bd = Bdescr((P_)initial_nursery);
+            nursery_bd->free = (P_)nursery_bd->start + sizeofW(StgCompactNFDataBlock);
+        }
+
         return NULL;
     }
 }

@@ -918,9 +918,10 @@ static void
 heapCensusCompactList(Census *census, bdescr *bd)
 {
     for (; bd != NULL; bd = bd->link) {
-        StgClosure *c = (StgClosure*)bd->start;
-        heapProfObject(census, c,
-                       compact_nfdata_full_sizeW((StgCompactNFData*)c), rtsTrue);
+        StgCompactNFDataBlock *block = (StgCompactNFDataBlock*)bd->start;
+        StgCompactNFData *str = block->owner;
+        heapProfObject(census, (StgClosure*)str,
+                       compact_nfdata_full_sizeW(str), rtsTrue);
     }
 }
 

@@ -1916,12 +1916,10 @@ stg_compactAppendzh ( P_ str, P_ val , W_ share)
     return (root);
 }
 
-stg_compactResizzezh ( P_ str, P_ oldRoot, W_ new_size )
+stg_compactResizzezh ( P_ str, W_ new_size )
 {
-    P_ new_str, new_root;
-    ("ptr" new_str) = ccall compactResize(MyCapability() "ptr", str "ptr", new_size);
-    new_root = oldRoot - str + new_str;
-    return (new_str, new_root);
+    ccall compactResize(MyCapability() "ptr", str "ptr", new_size);
+    return ();
 }
 
 /* -----------------------------------------------------------------------------
