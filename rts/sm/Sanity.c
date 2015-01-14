@@ -425,21 +425,8 @@ checkClosure( StgClosure* p )
         return sizeofW(StgTRecChunk);
       }
 
-    case COMPACT_NFDATA:
-      {
-        StgCompactNFData *str = (StgCompactNFData *)p;
-
-        ASSERT(str->allocatedW > 0);
-        ASSERT(str->free >= (StgPtr)str + sizeofW(StgCompactNFData));
-        ASSERT(str->free <= (StgPtr)str + str->allocatedW);
-        // Return a bogus size: this will make us barf if the object
-        // is in the regular heap, but it's perfectly ok for the compact
-        // object list
-        return -1;
-      }
-
     default:
-            barf("checkClosure (closure type %d)", info->type);
+        barf("checkClosure (closure type %d)", info->type);
     }
 }
 
@@ -497,6 +484,36 @@ checkLargeObjects(bdescr *bd)
     }
     bd = bd->link;
   }
+}
+
+static void
+checkCompactObjects(bdescr *bd)
+{
+    // Compact objects are similar to large objects,
+    // but they have a StgCompactNFDataBlock at the beginning,
+    // before the actual closure
+
+    while (bd != NULL) {
+        StgCompactNFDataBlock *block, *last;
+        StgCompactNFData *str;
+        StgWord totalW;
+
+        ASSERT (bd->flags & BF_COMPACT);
+
+        block = (StgCompactNFDataBlock*)bd->start;
+        str = block->owner;
+        ASSERT ((W_)str == (W_)block + sizeof(StgCompactNFData));
+
+        totalW = 0;
+        for ( ; block ; block = block->next) {
+            last = block;
+            ASSERT (block->owner == str);
+            totalW += Bdescr((P_)block)->blocks * BLOCK_SIZE_W;
+        }
+
+        ASSERT (str->totalW == totalW);
+        ASSERT (str->last == last);
+    }
 }
 
 static void
@@ -728,7 +745,7 @@ static void checkGeneration (generation *gen,
     }
 
     checkLargeObjects(gen->large_objects);
-    checkLargeObjects(gen->compact_objects);
+    checkCompactObjects(gen->compact_objects);
 }
 
 /* Full heap sanity check. */
@@ -762,7 +779,7 @@ static void
 markCompactBlocks(bdescr *bd)
 {
     for (; bd != NULL; bd = bd->link) {
-        compactMarkKnown((StgCompactNFData*)bd->start);
+        compactMarkKnown(((StgCompactNFDataBlock*)bd->start)->owner);
     }
 }
 

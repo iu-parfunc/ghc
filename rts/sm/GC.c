@@ -597,7 +597,7 @@ GarbageCollect (nat collect_gen,
          */
         for (bd = gen->compact_objects; bd; bd = next) {
             next = bd->link;
-            compactFree((StgCompactNFData*)bd->start);
+            compactFree(((StgCompactNFDataBlock*)bd->start)->owner);
         }
         gen->compact_objects = gen->live_compact_objects;
         gen->n_compact_blocks = gen->n_live_compact_blocks;

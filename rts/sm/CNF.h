@@ -21,14 +21,14 @@ StgCompactNFData *compactNew   (Capability      *cap,
 StgPtr            compactAppend(StgCompactNFData *str,
                                 StgClosure       *what,
                                 StgWord           share);
-StgCompactNFData *compactResize(Capability       *cap,
+void              compactResize(Capability       *cap,
                                 StgCompactNFData *str,
                                 StgWord           new_size);
 void              compactFree  (StgCompactNFData *str);
 void              compactMarkKnown (StgCompactNFData *str);
 
-INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure);
-INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure)
+INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure);
+INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure)
 {
     bdescr *object_block, *head_block;
 
@@ -43,7 +43,14 @@ INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure)
 
     ASSERT ((head_block->flags & BF_COMPACT) != 0);
 
-    return (StgCompactNFData*)(head_block->start);
+    return (StgCompactNFDataBlock*)(head_block->start);
+}
+
+INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure);
+INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure)
+{
+    StgCompactNFDataBlock *block = objectGetCompactBlock (closure);
+    return block->owner;
 }
 
 #include "EndPrivate.h"

@@ -2392,8 +2392,8 @@ primop  CompactAppendOp "compactAppend#" GenPrimOp
    out_of_line      = True
 
 primop  CompactResizeOp "compactResize#" GenPrimOp
-   Compact# -> a -> Word# -> State# RealWorld ->
-   (# State# RealWorld, Compact#, Addr# #)
+   Compact# -> Word# -> State# RealWorld ->
+   (# State# RealWorld #)
    with
    has_side_effects = True
    out_of_line      = True

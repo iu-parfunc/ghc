@@ -340,7 +340,7 @@ EXTERN_INLINE StgWord bco_sizeW ( StgBCO *bco )
 
 EXTERN_INLINE StgWord compact_nfdata_full_sizeW ( StgCompactNFData *str );
 EXTERN_INLINE StgWord compact_nfdata_full_sizeW ( StgCompactNFData *str )
-{ return str->allocatedW; }
+{ return str->totalW; }
 
 /*
  * TODO: Consider to switch return type from 'nat' to 'StgWord' #8742

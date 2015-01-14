@@ -104,8 +104,7 @@ compactNew = compactNewInternal 1#
 compactNewNoShare :: NFData a => Word -> a -> IO (Maybe (Compact a))
 compactNewNoShare = compactNewInternal 0#
 
-compactResize :: Compact a -> Word -> IO (Compact a)
-compactResize (Compact oldBuffer oldRoot) (W# new_size) =
-  IO (\s -> case compactResize# oldBuffer oldRoot new_size s of
-         (# s', buffer, rootAddr #) ->
-           (# s', makeCompact buffer rootAddr #) )
+compactResize :: Compact a -> Word -> IO ()
+compactResize (Compact oldBuffer _) (W# new_size) =
+  IO (\s -> case compactResize# oldBuffer new_size s of
+         (# s' #) -> (# s', () #) )
