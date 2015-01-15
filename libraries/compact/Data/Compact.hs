@@ -40,7 +40,6 @@ module Data.Compact (
 import GHC.Prim (Compact#,
                  compactNew#,
                  compactAppend#,
-                 compactResize#,
                  Addr#,
                  nullAddr#,
                  eqAddr#,
@@ -55,33 +54,18 @@ import GHC.Types (IO(..), Word(..), isTrue#)
 
 import Control.DeepSeq (NFData, force)
 
-data Compact a = Compact Compact# a
-
--- | 'compactGetRoot': retrieve the object that was stored in a Compact
-compactGetRoot :: Compact a -> a
-compactGetRoot (Compact _ obj) = obj
-
-compactGetBuffer :: Compact a -> Compact#
-compactGetBuffer (Compact buffer _) = buffer
-
-addrIsNull :: Addr# -> Bool
-addrIsNull addr = isTrue# (nullAddr# `eqAddr#` addr)
-
-maybeMakeCompact :: Compact# -> Addr# -> Maybe (Compact a)
-maybeMakeCompact _ rootAddr | addrIsNull rootAddr = Nothing
-maybeMakeCompact buffer rootAddr = Just $ makeCompact buffer rootAddr
-
-makeCompact :: Compact# -> Addr# -> Compact a
-makeCompact buffer rootAddr =
-  case addrToAny# rootAddr of
-    (# root #) -> Compact buffer root
+import Data.Compact.Imp(Compact(..),
+                        compactGetRoot,
+                        compactGetBuffer,
+                        compactResize,
+                        compactAppendEvaledInternal,
+                        maybeMakeCompact)
 
 compactAppendInternal :: NFData a => Compact# -> a -> Int# -> State# RealWorld ->
                         (# State# RealWorld, Maybe (Compact a) #)
 compactAppendInternal buffer root share s =
   case force root of
-    !eval -> case compactAppend# buffer eval share s of
-      (# s', rootAddr #) -> (# s', maybeMakeCompact buffer rootAddr #)
+    !eval -> compactAppendEvaledInternal buffer eval share s
 
 compactAppendInternalIO :: NFData a => Int# -> Compact b -> a -> IO (Maybe (Compact a))
 compactAppendInternalIO share str root =
@@ -103,8 +87,3 @@ compactNew = compactNewInternal 1#
 
 compactNewNoShare :: NFData a => Word -> a -> IO (Maybe (Compact a))
 compactNewNoShare = compactNewInternal 0#
-
-compactResize :: Compact a -> Word -> IO ()
-compactResize (Compact oldBuffer _) (W# new_size) =
-  IO (\s -> case compactResize# oldBuffer new_size s of
-         (# s' #) -> (# s', () #) )
