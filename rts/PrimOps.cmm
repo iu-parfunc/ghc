@@ -1931,34 +1931,16 @@ stg_compactResizzezh ( P_ str, W_ new_size )
 
 stg_compactContainszh ( P_ str, P_ val )
 {
-    P_ bd;
-    P_ block;
-    P_ owner;
-    bd = Bdescr(val);
-
-    if (bdescr_link(bd) != 0) {
-       bd = bdescr_link(bd);
-    }
-
-    block = bdescr_start(bd);
-    owner = StgCompactNFDataBlock_owner(block);
-
-    return (owner == str);
+    W_ ok;
+    (ok) = ccall compactContains(str "ptr", val "ptr");
+    return (ok);
 }
 
 stg_compactContainsAnyzh ( P_ val )
 {
-    P_ bd;
-    I16 flags;
-    bd = Bdescr(val);
-
-    if (bdescr_link(bd) != 0) {
-       bd = bdescr_link(bd);
-    }
-
-    flags = bdescr_flags(bd);
-
-    return ((flags & BF_COMPACT::I16) == 0::I16);
+    W_ ok;
+    (ok) = ccall compactContains(0::P_, val "ptr");
+    return (ok);
 }
 
 /* -----------------------------------------------------------------------------

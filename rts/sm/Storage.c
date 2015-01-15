@@ -87,8 +87,12 @@ initGeneration (generation *gen, int g)
     gen->n_large_blocks = 0;
     gen->n_large_words = 0;
     gen->n_new_large_words = 0;
+    gen->compact_objects = NULL;
+    gen->n_compact_blocks = 0;
     gen->scavenged_large_objects = NULL;
     gen->n_scavenged_large_blocks = 0;
+    gen->live_compact_objects = NULL;
+    gen->n_live_compact_blocks = 0;
     gen->mark = 0;
     gen->compact = 0;
     gen->bitmap = NULL;
