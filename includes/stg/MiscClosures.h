@@ -405,8 +405,11 @@ RTS_FUN_DECL(stg_deRefStablePtrzh);
 
 RTS_FUN_DECL(stg_compactNewzh);
 RTS_FUN_DECL(stg_compactAppendzh);
+RTS_FUN_DECL(stg_compactAppendOnezh);
 RTS_FUN_DECL(stg_compactResizzezh);
 RTS_FUN_DECL(stg_compactGetRootzh);
+RTS_FUN_DECL(stg_compactContainszh);
+RTS_FUN_DECL(stg_compactContainsAnyzh);
 
 RTS_FUN_DECL(stg_forkzh);
 RTS_FUN_DECL(stg_forkOnzh);

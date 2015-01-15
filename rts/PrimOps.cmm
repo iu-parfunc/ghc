@@ -1916,10 +1916,49 @@ stg_compactAppendzh ( P_ str, P_ val , W_ share)
     return (root);
 }
 
+stg_compactAppendOnezh ( P_ str, P_ val )
+{
+    P_ root;
+    ("ptr" root) = ccall compactAppendOne(str "ptr", val "ptr");
+    return (root);
+}
+
 stg_compactResizzezh ( P_ str, W_ new_size )
 {
     ccall compactResize(MyCapability() "ptr", str "ptr", new_size);
     return ();
+}
+
+stg_compactContainszh ( P_ str, P_ val )
+{
+    P_ bd;
+    P_ block;
+    P_ owner;
+    bd = Bdescr(val);
+
+    if (bdescr_link(bd) != 0) {
+       bd = bdescr_link(bd);
+    }
+
+    block = bdescr_start(bd);
+    owner = StgCompactNFDataBlock_owner(block);
+
+    return (owner == str);
+}
+
+stg_compactContainsAnyzh ( P_ val )
+{
+    P_ bd;
+    I16 flags;
+    bd = Bdescr(val);
+
+    if (bdescr_link(bd) != 0) {
+       bd = bdescr_link(bd);
+    }
+
+    flags = bdescr_flags(bd);
+
+    return ((flags & BF_COMPACT::I16) == 0::I16);
 }
 
 /* -----------------------------------------------------------------------------
