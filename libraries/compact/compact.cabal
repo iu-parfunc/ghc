@@ -45,3 +45,4 @@ library
   exposed-modules: Data.Compact
                    Data.Compact.Incremental
                    Data.Compact.Monad
+                   Data.Compact.Imp
