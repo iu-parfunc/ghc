@@ -396,7 +396,6 @@ PACKAGES_STAGE1 += base
 PACKAGES_STAGE1 += filepath
 PACKAGES_STAGE1 += array
 PACKAGES_STAGE1 += deepseq
-PACKAGES_STAGE1 += compact
 PACKAGES_STAGE1 += bytestring
 PACKAGES_STAGE1 += containers
 
@@ -418,6 +417,7 @@ PACKAGES_STAGE1 += Cabal/Cabal
 PACKAGES_STAGE1 += bin-package-db
 PACKAGES_STAGE1 += hoopl
 PACKAGES_STAGE1 += transformers
+PACKAGES_STAGE1 += compact
 
 ifeq "$(HADDOCK_DOCS)" "YES"
 PACKAGES_STAGE1 += xhtml

@@ -2391,11 +2391,27 @@ primop  CompactAppendOp "compactAppend#" GenPrimOp
    has_side_effects = True
    out_of_line      = True
 
+primop  CompactAppendOneOp "compactAppendOne#" GenPrimOp
+   Compact# -> a -> State# RealWorld -> (# State# RealWorld, Addr# #)
+   with
+   has_side_effects = True
+   out_of_line      = True
+
 primop  CompactResizeOp "compactResize#" GenPrimOp
    Compact# -> Word# -> State# RealWorld ->
    (# State# RealWorld #)
    with
    has_side_effects = True
+   out_of_line      = True
+
+primop  CompactContainsOp "compactContains#" GenPrimOp
+   Compact# -> a -> Int#
+   with
+   out_of_line      = True
+
+primop  CompactContainsAnyOp "compactContainsAny#" GenPrimOp
+   a -> Int#
+   with
    out_of_line      = True
 
 ------------------------------------------------------------------------

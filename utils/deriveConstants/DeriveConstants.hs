@@ -373,6 +373,7 @@ wanteds = concat
           ,structField Both "bdescr" "blocks"
           ,structField C    "bdescr" "gen_no"
           ,structField C    "bdescr" "link"
+          ,structField Both "bdescr" "flags"
 
           ,structSize C  "generation"
           ,structField C "generation" "n_new_large_words"
@@ -548,6 +549,10 @@ wanteds = concat
           ,closureField C "StgCompactNFData" "totalW"
           ,closureField C "StgCompactNFData" "nursery"
           ,closureField C "StgCompactNFData" "last"
+
+          ,structSize   C "StgCompactNFDataBlock"
+          ,structField  C "StgCompactNFDataBlock" "owner"
+          ,structField  C "StgCompactNFDataBlock" "next"
 
           ,structField_ C "RtsFlags_ProfFlags_showCCSOnException"
                           "RTS_FLAGS" "ProfFlags.showCCSOnException"

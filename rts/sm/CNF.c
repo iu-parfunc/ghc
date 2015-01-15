@@ -421,6 +421,29 @@ scavenge_loop (StgCompactNFData *str, StgCompactNFDataBlock *first_block, HashTa
     return rtsTrue;
 }
 
+#ifdef DEBUG
+static rtsBool
+objectIsWHNFData (StgClosure *what)
+{
+    switch (get_itbl(what)->type) {
+    case CONSTR:
+    case CONSTR_1_0:
+    case CONSTR_0_1:
+    case CONSTR_2_0:
+    case CONSTR_1_1:
+    case CONSTR_0_2:
+        return rtsTrue;
+
+    case IND:
+    case BLACKHOLE:
+        return objectIsWHNFData(((StgInd*)what)->indirectee);
+
+    default:
+        return rtsFalse;
+    }
+}
+#endif
+
 StgPtr
 compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
 {
@@ -431,8 +454,9 @@ compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
     HashTable *hash;
     StgCompactNFDataBlock *initial_nursery;
     bdescr *nursery_bd;
-    bdescr *evaced_bd;
     StgCompactNFDataBlock *evaced_block;
+
+    ASSERT(objectIsWHNFData(what));
 
     // If what is not heap alloced (it is a static CONSTR)
     // we will do nothing in simple_evacuate. But let's not
@@ -483,4 +507,90 @@ compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
 
         return NULL;
     }
+}
+
+STATIC_INLINE void
+maybe_adjust_one_indirection(StgCompactNFData *str, StgClosure **p)
+{
+    StgClosure *q;
+
+    q = *p;
+    q = UNTAG_CLOSURE(q);
+
+    switch (get_itbl(q)->type) {
+    case BLACKHOLE:
+        // If tag == 0, the indirectee is the TSO that claimed the tag
+        //
+        // Not useful and not NFData
+        q = ((StgInd*)q)->indirectee;
+        ASSERT (GET_CLOSURE_TAG(q) != 0);
+        *p = q;
+        break;
+
+    case IND:
+        q = ((StgInd*)q)->indirectee;
+        *p = q;
+        break;
+
+    default:
+        ASSERT (object_in_compact(str, q));
+        break;
+    }
+}
+
+static void
+adjust_indirections(StgCompactNFData *str, StgClosure *what)
+{
+    StgInfoTable *info;
+
+    info = get_itbl(what);
+    switch (info->type) {
+    case CONSTR_0_1:
+    case CONSTR_0_2:
+        break;
+
+    case CONSTR_1_1:
+    case CONSTR_1_0:
+        maybe_adjust_one_indirection(str, &what->payload[0]);
+        break;
+
+    case CONSTR_2_0:
+        maybe_adjust_one_indirection(str, &what->payload[0]);
+        maybe_adjust_one_indirection(str, &what->payload[1]);
+        break;
+
+    case CONSTR:
+    case PRIM:
+    {
+        nat i;
+
+        for (i = 0; i < info->layout.payload.ptrs; i++)
+            maybe_adjust_one_indirection(str, &what->payload[i]);
+
+        break;
+    }
+
+    default:
+        break;
+    }
+}
+
+StgPtr
+compactAppendOne (StgCompactNFData *str, StgClosure *what)
+{
+    StgClosure *tagged_root;
+
+    ASSERT(objectIsWHNFData(what));
+
+    // See above for this check
+    if (!HEAP_ALLOCED(what))
+        return (StgPtr)what;
+
+    tagged_root = what;
+    if (!simple_evacuate(str, NULL, &tagged_root))
+        return NULL;
+
+    adjust_indirections(str, UNTAG_CLOSURE(tagged_root));
+
+    return (StgPtr)tagged_root;
 }
