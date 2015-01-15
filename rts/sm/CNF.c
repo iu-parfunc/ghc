@@ -436,7 +436,7 @@ objectIsWHNFData (StgClosure *what)
 
     case IND:
     case BLACKHOLE:
-        return objectIsWHNFData(((StgInd*)what)->indirectee);
+        return objectIsWHNFData(UNTAG_CLOSURE(((StgInd*)what)->indirectee));
 
     default:
         return rtsFalse;
@@ -456,8 +456,6 @@ compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
     bdescr *nursery_bd;
     StgCompactNFDataBlock *evaced_block;
 
-    ASSERT(objectIsWHNFData(what));
-
     // If what is not heap alloced (it is a static CONSTR)
     // we will do nothing in simple_evacuate. But let's not
     // bother at all to set up the allocation system
@@ -465,6 +463,8 @@ compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
     // far as heap_alloced is concerned)
     if (!HEAP_ALLOCED(what))
         return (StgPtr)what;
+
+    ASSERT(objectIsWHNFData(UNTAG_CLOSURE(what)));
 
     initial_nursery = str->nursery;
     ASSERT (initial_nursery != NULL);
@@ -525,15 +525,17 @@ maybe_adjust_one_indirection(StgCompactNFData *str, StgClosure **p)
         q = ((StgInd*)q)->indirectee;
         ASSERT (GET_CLOSURE_TAG(q) != 0);
         *p = q;
+        maybe_adjust_one_indirection(str, p);
         break;
 
     case IND:
         q = ((StgInd*)q)->indirectee;
         *p = q;
+        maybe_adjust_one_indirection(str, p);
         break;
 
     default:
-        ASSERT (object_in_compact(str, q));
+        ASSERT (!HEAP_ALLOCED(q) || object_in_compact(str, q));
         break;
     }
 }
@@ -580,11 +582,11 @@ compactAppendOne (StgCompactNFData *str, StgClosure *what)
 {
     StgClosure *tagged_root;
 
-    ASSERT(objectIsWHNFData(what));
-
     // See above for this check
     if (!HEAP_ALLOCED(what))
         return (StgPtr)what;
+
+    ASSERT(objectIsWHNFData(UNTAG_CLOSURE(what)));
 
     tagged_root = what;
     if (!simple_evacuate(str, NULL, &tagged_root))
@@ -593,4 +595,30 @@ compactAppendOne (StgCompactNFData *str, StgClosure *what)
     adjust_indirections(str, UNTAG_CLOSURE(tagged_root));
 
     return (StgPtr)tagged_root;
+}
+
+StgWord
+compactContains (StgCompactNFData *str, StgPtr what)
+{
+    bdescr *bd;
+
+    // Static objects are considered to be in any compact
+    // because they do not need recursive evaluation or
+    // recursive copying when appended to a compact (which
+    // is how compactContains# is used by the API layer)
+
+    // This check is also the reason why this needs to be
+    // implemented in C instead of (possibly faster) Cmm
+    //
+    // (If the large address space patch goes in, OTOH,
+    // we can write a Cmm version of HEAP_ALLOCED() and move
+    // all this code to PrimOps.cmm - for x86_64 only)
+    if (!HEAP_ALLOCED (what))
+        return 1;
+
+    // Note that we don't care about tags, they are eaten
+    // away by the Bdescr operation anyway
+    bd = Bdescr((P_)what);
+    return (bd->flags & BF_COMPACT) != 0 &&
+        (str == NULL || objectGetCompact((StgClosure*)what) == str);
 }

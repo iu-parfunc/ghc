@@ -39,18 +39,13 @@ module Data.Compact (
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
 import GHC.Prim (Compact#,
                  compactNew#,
-                 compactAppend#,
-                 Addr#,
-                 nullAddr#,
-                 eqAddr#,
-                 addrToAny#,
                  State#,
                  RealWorld,
                  Int#,
                  )
 -- We need to import Word from GHC.Types to see the representation
 -- and to able to access the Word# to pass down the primops
-import GHC.Types (IO(..), Word(..), isTrue#)
+import GHC.Types (IO(..), Word(..))
 
 import Control.DeepSeq (NFData, force)
 
@@ -58,8 +53,7 @@ import Data.Compact.Imp(Compact(..),
                         compactGetRoot,
                         compactGetBuffer,
                         compactResize,
-                        compactAppendEvaledInternal,
-                        maybeMakeCompact)
+                        compactAppendEvaledInternal)
 
 compactAppendInternal :: NFData a => Compact# -> a -> Int# -> State# RealWorld ->
                         (# State# RealWorld, Maybe (Compact a) #)

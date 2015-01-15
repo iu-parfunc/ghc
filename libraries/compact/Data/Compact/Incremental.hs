@@ -39,23 +39,15 @@ module Data.Compact.Incremental (
   compactAppendEvaled,
 
   Compactable,
+  compact,
   defaultCompactNFData,
   ) where
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
-import GHC.Prim (Compact#,
-                 compactNew#,
-                 compactAppend#,
+import GHC.Prim (compactNew#,
                  compactAppendOne#,
                  compactContains#,
                  compactContainsAny#,
-                 Addr#,
-                 nullAddr#,
-                 eqAddr#,
-                 addrToAny#,
-                 State#,
-                 RealWorld,
-                 Int#,
                  )
 -- We need to import Word from GHC.Types to see the representation
 -- and to able to access the Word# to pass down the primops
@@ -72,7 +64,7 @@ import Control.DeepSeq (NFData, force)
 
 -- not strictly required, but it makes code easier to read
 import Control.Monad.Trans.Maybe
-import Control.Monad.Trans.Class
+import Control.Monad.Trans.Class()
 
 compactNew :: Compactable a => Word -> a -> IO (Maybe (Compact a))
 compactNew (W# size) val = do
@@ -112,14 +104,14 @@ defaultCompactNFData str v = compactAppendEvaled str (force v)
 
 appendRec :: Compactable a => Compact b -> a -> MaybeT IO a
 appendRec str val = do
-  str' <- MaybeT $ compactAppendRecursively str val
+  !str' <- MaybeT $ compactAppendRecursively str val
   return $ compactGetRoot str'
 
 instance Compactable a => Compactable [a] where
   compact str [] = compactAppendOne str []
   compact str (x:xs) = runMaybeT $ do
-    xs' <- appendRec str xs
-    x' <- appendRec str x
+    !xs' <- appendRec str xs
+    !x' <- appendRec str x
     MaybeT $ compactAppendOne str (x':xs')
 
 instance Compactable () where
@@ -127,49 +119,49 @@ instance Compactable () where
 
 instance (Compactable a, Compactable b) => Compactable (a,b) where
   compact str (l, r) = runMaybeT $ do
-    l' <- appendRec str l
-    r' <- appendRec str r
+    !l' <- appendRec str l
+    !r' <- appendRec str r
     MaybeT $ compactAppendOne str (l', r')
 
 instance (Compactable a, Compactable b, Compactable c) =>
          Compactable (a,b,c) where
   compact str (v1, v2, v3) = runMaybeT $ do
-    v1' <- appendRec str v1
-    v2' <- appendRec str v2
-    v3' <- appendRec str v3
+    !v1' <- appendRec str v1
+    !v2' <- appendRec str v2
+    !v3' <- appendRec str v3
     MaybeT $ compactAppendOne str (v1',v2',v3')
 
-instance (Compactable a, Compactable b, Compactable c) =>
+instance (Compactable a, Compactable b, Compactable c, Compactable d) =>
          Compactable (a,b,c,d) where
   compact str (v1, v2, v3, v4) = runMaybeT $ do
-    v1' <- appendRec str v1
-    v2' <- appendRec str v2
-    v3' <- appendRec str v3
-    v4' <- appendRec str v4
+    !v1' <- appendRec str v1
+    !v2' <- appendRec str v2
+    !v3' <- appendRec str v3
+    !v4' <- appendRec str v4
     MaybeT $ compactAppendOne str (v1',v2',v3',v4')
 
 instance (Compactable a, Compactable b, Compactable c, Compactable d,
           Compactable e) => Compactable (a,b,c,d,e) where
-  compact str (v1, v2, v3) = runMaybeT $ do
-    v1' <- appendRec str v1
-    v2' <- appendRec str v2
-    v3' <- appendRec str v3
-    v4' <- appendRec str v4
-    v5' <- appendRec str v5
+  compact str (v1, v2, v3, v4, v5) = runMaybeT $ do
+    !v1' <- appendRec str v1
+    !v2' <- appendRec str v2
+    !v3' <- appendRec str v3
+    !v4' <- appendRec str v4
+    !v5' <- appendRec str v5
     MaybeT $ compactAppendOne str (v1',v2',v3',v4',v5')
 
 instance Compactable a => Compactable (Maybe a) where
   compact str Nothing = compactAppendOne str Nothing
   compact str (Just v) = runMaybeT $ do
-    v' <- appendRec str v
+    !v' <- appendRec str v
     MaybeT $ compactAppendOne str (Just v')
 
 instance (Compactable a, Compactable b) => Compactable (Either a b) where
   compact str (Left l) = runMaybeT $ do
-    l' <- appendRec str l
+    !l' <- appendRec str l
     MaybeT $ compactAppendOne str (Left l')
   compact str (Right r) = runMaybeT $ do
-    r' <- appendRec str r
+    !r' <- appendRec str r
     MaybeT $ compactAppendOne str (Right r')
 
 instance Compactable Int where
