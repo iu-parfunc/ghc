@@ -37,12 +37,17 @@ module Data.Compact.Imp(
 
   compactAppendEvaledInternal,
   maybeMakeCompact,
+
+  SerializedCompact(..),
+  withCompactPtrs,
 ) where
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
 import GHC.Prim (Compact#,
                  compactAppend#,
                  compactResize#,
+                 compactGetFirstBlock#,
+                 compactGetNextBlock#,
                  Addr#,
                  nullAddr#,
                  eqAddr#,
@@ -50,16 +55,21 @@ import GHC.Prim (Compact#,
                  State#,
                  RealWorld,
                  Int#,
+                 Word#,
                  )
 -- We need to import Word from GHC.Types to see the representation
 -- and to able to access the Word# to pass down the primops
 import GHC.Types (IO(..), Word(..), isTrue#)
 
-data Compact a = Compact Compact# a
+import GHC.Ptr (Ptr(..))
+
+data Compact a = Compact Compact# Addr#
 
 -- | 'compactGetRoot': retrieve the object that was stored in a Compact
 compactGetRoot :: Compact a -> a
-compactGetRoot (Compact _ obj) = obj
+compactGetRoot (Compact _ obj) =
+  case addrToAny# obj of
+    (# a #) -> a
 
 compactGetBuffer :: Compact a -> Compact#
 compactGetBuffer (Compact buffer _) = buffer
@@ -69,12 +79,7 @@ addrIsNull addr = isTrue# (nullAddr# `eqAddr#` addr)
 
 maybeMakeCompact :: Compact# -> Addr# -> Maybe (Compact a)
 maybeMakeCompact _ rootAddr | addrIsNull rootAddr = Nothing
-maybeMakeCompact buffer rootAddr = Just $ makeCompact buffer rootAddr
-
-makeCompact :: Compact# -> Addr# -> Compact a
-makeCompact buffer rootAddr =
-  case addrToAny# rootAddr of
-    (# root #) -> Compact buffer root
+maybeMakeCompact buffer rootAddr = Just $ Compact buffer rootAddr
 
 compactResize :: Compact a -> Word -> IO ()
 compactResize (Compact oldBuffer _) (W# new_size) =
@@ -86,3 +91,26 @@ compactAppendEvaledInternal :: Compact# -> a -> Int# -> State# RealWorld ->
 compactAppendEvaledInternal buffer root share s =
   case compactAppend# buffer root share s of
     (# s', rootAddr #) -> (# s', maybeMakeCompact buffer rootAddr #)
+
+data SerializedCompact a b = SerializedCompact {
+  serializedCompactGetBlockList :: [(Ptr a, Word)],
+  serializedCompactGetRoot :: Ptr a
+  }
+
+mkBlockList :: Compact# -> [(Ptr a, Word)]
+mkBlockList buffer = go (compactGetFirstBlock# buffer)
+  where
+    go :: (# Addr#, Word# #) -> [(Ptr a, Word)]
+    go (# block, size #) | addrIsNull block = []
+    go (# block, size #) = let next = compactGetNextBlock# buffer block
+               in
+                mkBlock block size : go next
+
+    mkBlock :: Addr# -> Word# -> (Ptr a, Word)
+    mkBlock block size = (Ptr block, W# size)
+
+withCompactPtrs :: Compact a -> (SerializedCompact a b -> c) -> c
+withCompactPtrs (Compact buffer rootAddr) func =
+  let serialized = SerializedCompact (mkBlockList buffer) (Ptr rootAddr)
+  in
+   func serialized

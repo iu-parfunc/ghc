@@ -1939,8 +1939,49 @@ stg_compactContainszh ( P_ str, P_ val )
 stg_compactContainsAnyzh ( P_ val )
 {
     W_ ok;
-    (ok) = ccall compactContains(0::P_, val "ptr");
+    (ok) = ccall compactContains(0::W_, val "ptr");
     return (ok);
+}
+
+stg_compactGetFirstBlockzh ( P_ str )
+{
+    /* W_, not P_, because it is not a gc pointer */
+    W_ block;
+    W_ bd;
+    W_ size;
+
+    block = str - SIZEOF_StgCompactNFDataBlock::W_;
+    ASSERT (StgCompactNFDataBlock_owner(block) == str);
+
+    bd = Bdescr(str);
+    size = bdescr_free(bd) - bdescr_start(bd);
+    ASSERT (size <= TO_W_(bdescr_blocks(bd)) * BLOCK_SIZE);
+
+    return (block, size);
+}
+
+stg_compactGetNextBlockzh ( P_ str, W_ block )
+{
+    /* str is mostly unused, it is there for debugging and
+       to make sure everything stays alive because it is reachable
+       by the GC */
+    W_ bd;
+    W_ next_block;
+    W_ size;
+
+    next_block = StgCompactNFDataBlock_next(block);
+
+    if (next_block == 0::W_) {
+        return (0::W_, 0::W_);
+    }
+
+    ASSERT (StgCompactNFDataBlock_owner(next_block) == str);
+
+    bd = Bdescr(next_block);
+    size = bdescr_free(bd) - bdescr_start(bd);
+    ASSERT (size <= TO_W_(bdescr_blocks(bd)) * BLOCK_SIZE);
+
+    return (next_block, size);
 }
 
 /* -----------------------------------------------------------------------------
