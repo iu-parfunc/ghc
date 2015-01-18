@@ -424,6 +424,9 @@ typedef struct MessageBlackHole_ {
 // each consecutive block group in a
 // compact structure
 typedef struct StgCompactNFDataBlock_ {
+    struct StgCompactNFDataBlock_ *self; // the address of this block
+                                         // (used for adjusting pointers on
+                                         // the receiver side)
     struct StgCompactNFData_ *owner; // the closure who owns this
                                      // block (used in objectGetCompact)
     struct StgCompactNFDataBlock_ *next; // chain of blocks used for
