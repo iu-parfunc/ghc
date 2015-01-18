@@ -551,6 +551,7 @@ wanteds = concat
           ,closureField C "StgCompactNFData" "last"
 
           ,structSize   C "StgCompactNFDataBlock"
+          ,structField  C "StgCompactNFDataBlock" "self"
           ,structField  C "StgCompactNFDataBlock" "owner"
           ,structField  C "StgCompactNFDataBlock" "next"
 

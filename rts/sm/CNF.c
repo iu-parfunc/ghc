@@ -58,6 +58,7 @@ compactAllocateBlock(Capability *cap, StgWord aligned_size, rtsBool linkGenerati
     cap->total_allocated += aligned_size / sizeof(StgWord);
 
     self = (StgCompactNFDataBlock*) block->start;
+    self->self = self;
     self->next = NULL;
 
     if (linkGeneration)
