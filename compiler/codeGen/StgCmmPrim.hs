@@ -355,6 +355,10 @@ emitPrimOp dflags [res] ReallyUnsafePtrEqualityOp [arg1,arg2]
 emitPrimOp _      [res] AddrToAnyOp [arg]
    = emitAssign (CmmLocal res) arg
 
+--  #define hvalueToAddrzh(r, a) r=(W_)a
+emitPrimOp _      [res] AnyToAddrOp [arg]
+   = emitAssign (CmmLocal res) arg
+
 --  #define dataToTagzh(r,a)  r=(GET_TAG(((StgClosure *)a)->header.info))
 --  Note: argument may be tagged!
 emitPrimOp dflags [res] DataToTagOp [arg]

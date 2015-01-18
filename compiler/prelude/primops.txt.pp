@@ -2414,6 +2414,16 @@ primop  CompactContainsAnyOp "compactContainsAny#" GenPrimOp
    with
    out_of_line      = True
 
+primop  CompactGetFirstBlockOp "compactGetFirstBlock#" GenPrimOp
+   Compact# -> (# Addr#, Word# #)
+   with
+   out_of_line      = True
+
+primop  CompactGetNextBlockOp "compactGetNextBlock#" GenPrimOp
+   Compact# -> Addr# -> (# Addr#, Word# #)
+   with
+   out_of_line      = True
+
 ------------------------------------------------------------------------
 section "Unsafe pointer equality"
 --  (#1 Bad Guy: Alistair Reid :)
@@ -2538,6 +2548,21 @@ primtype BCO#
 primop   AddrToAnyOp "addrToAny#" GenPrimOp
    Addr# -> (# a #)
    {Convert an {\tt Addr\#} to a followable Any type.}
+   with
+   code_size = 0
+
+primop   AnyToAddrOp "anyToAddr#" GenPrimOp
+   a -> (# Addr# #)
+   { Retrive the address of any Haskell value. This is
+     essentially an {\texttt unsafeCoerce\#}, but if implemented as such
+     the core lint pass complains and fails to compile.
+     As a primop, it is opaque to core/stg, and only appears
+     in cmm (where the copy propagation pass will get rid of it).
+     Note that "a" must be a value, not a thunk! It's too late
+     for strictness analysis to enforce this, so you're on your
+     own to guarantee this. Also note that {\texttt Addr\#} is not a GC
+     pointer - up to you to guarantee that it does not become
+     a dangling pointer immediately after you get it.}
    with
    code_size = 0
 

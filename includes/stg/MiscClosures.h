@@ -410,6 +410,8 @@ RTS_FUN_DECL(stg_compactResizzezh);
 RTS_FUN_DECL(stg_compactGetRootzh);
 RTS_FUN_DECL(stg_compactContainszh);
 RTS_FUN_DECL(stg_compactContainsAnyzh);
+RTS_FUN_DECL(stg_compactGetFirstBlockzh);
+RTS_FUN_DECL(stg_compactGetNextBlockzh);
 
 RTS_FUN_DECL(stg_forkzh);
 RTS_FUN_DECL(stg_forkOnzh);
