@@ -41,6 +41,8 @@ module Data.Compact.Incremental (
   Compactable,
   compact,
   defaultCompactNFData,
+
+  withCompactPtrs,
   ) where
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
@@ -48,6 +50,8 @@ import GHC.Prim (compactNew#,
                  compactAppendOne#,
                  compactContains#,
                  compactContainsAny#,
+                 Addr#,
+                 anyToAddr#,
                  )
 -- We need to import Word from GHC.Types to see the representation
 -- and to able to access the Word# to pass down the primops
@@ -58,7 +62,8 @@ import Data.Compact.Imp(Compact(..),
                         compactGetBuffer,
                         compactResize,
                         compactAppendEvaledInternal,
-                        maybeMakeCompact)
+                        maybeMakeCompact,
+                        withCompactPtrs)
 
 import Control.DeepSeq (NFData, force)
 
@@ -71,7 +76,8 @@ compactNew (W# size) val = do
   -- cheap trick: () is a constant and so Compact () is the empty compact
   -- and we don't need to append or adjust the address
   unitStr <- IO (\s -> case compactNew# size s of
-                    (# s', buffer #) -> (# s', Compact buffer () #) )
+                    (# s', buffer #) -> case anyToAddr# () of
+                      (# rootAddr #) -> (# s', Compact buffer rootAddr #) )
   compactAppendRecursively unitStr val
 
 compactAppendEvaled :: Compact b -> a -> IO (Maybe (Compact a))
@@ -86,7 +92,8 @@ class Compactable a where
 compactAppendRecursively :: Compactable a => Compact b -> a -> IO (Maybe (Compact a))
 compactAppendRecursively str@(Compact buffer _) !val = do
   if isTrue# (compactContains# buffer val) then
-    return $ Just $ Compact buffer val
+    case anyToAddr# val of
+      (# rootAddr #) -> return $ Just $ Compact buffer rootAddr
     else if isTrue# (compactContainsAny# val) then
            compactAppendEvaled str val
          else
