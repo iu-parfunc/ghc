@@ -292,6 +292,7 @@ bdescr *allocBlock_lock(void);
 #ifdef USE_STRIPED_ALLOCATOR
 bdescr *allocGroupInChunk(nat chunk, W_ n);
 bdescr *allocBlockInChunk(nat chunk);
+bdescr *allocGroupAt(void *addr, W_ n);
 #endif
 
 /* De-Allocation ----------------------------------------------------------- */
