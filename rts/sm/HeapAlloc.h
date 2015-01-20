@@ -49,10 +49,47 @@
    the 4GB block in question.
    -------------------------------------------------------------------------- */
 
-#ifdef USE_LARGE_ADDRESS_SPACE
+# ifdef USE_STRIPED_ALLOCATOR
+
+# if !defined(USE_LARGE_ADDRESS_SPACE) || !defined(linux_HOST_OS)
+// The striped allocator relies on details of how the address space
+// is laid out. We can't use it on other OSes.
+#  error "The striped allocator is only supported on Linux x86_64"
+# endif
+
+// We have a little less than 127 TB total of address space (the most I could
+// get is 131071 GB, with static linking and ASLR disabled). To be conservative,
+// we leave 1 TB of low space (code, static data, C heap), followed by 1 TB of
+// normal heap and 983 chunks of 128 GB each, for a total of 126848 GB (983
+// chosen because it is prime and hopefully not to close to the maximum - 991 or
+// 997 might work too but let's not risk it)
+//
+// The chunk size has been chosen to have ~1000 buckets, which should be
+// enough to accomodate a medium-size cluster (500-700 nodes)
+//
+// Note that it is imperative that initialization happens before the
+// second thread is spawned, otherwise the glibc might go and allocate
+// another malloc arena in the wrong place, which would spray our tight
+// adddress space and make mmap fail
+
+# define MBLOCK_SPACE_BEGIN       ((StgWord)1 << 40) /* 1 TB */
+# define MBLOCK_NORMAL_SPACE_SIZE ((StgWord)1 << 40) /* 1 TB */
+# define MBLOCK_CHUNK_SIZE        ((StgWord)128 << 30) /* 512 GB */
+# define MBLOCK_NUM_CHUNKS        983
+# define MBLOCK_SPACE_SIZE        (MBLOCK_CHUNK_SIZE * MBLOCK_NUM_CHUNKS + \
+                                   MBLOCK_NORMAL_SPACE_SIZE)
+
+# define HEAP_ALLOCED(p)          ((W_)(p) >= MBLOCK_SPACE_BEGIN && \
+                                   (W_)(p) < (MBLOCK_SPACE_BEGIN +  \
+                                              MBLOCK_SPACE_SIZE))
+# define HEAP_ALLOCED_GC(p)       HEAP_ALLOCED(p)
+
+#elif defined(USE_LARGE_ADDRESS_SPACE)
 
 extern W_ mblock_address_space_begin;
+
 # define MBLOCK_SPACE_SIZE      ((StgWord)1 << 40) /* 1 TB */
+
 # define HEAP_ALLOCED(p)        ((W_)(p) >= mblock_address_space_begin && \
                                  (W_)(p) < (mblock_address_space_begin +  \
                                             MBLOCK_SPACE_SIZE))
