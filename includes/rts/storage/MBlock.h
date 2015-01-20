@@ -30,6 +30,10 @@ extern void *getNextMBlock(void *mblock);
 extern SpinLock gc_alloc_block_sync;
 #endif
 
+#ifdef USE_LARGE_ADDRESS_SPACE
+extern void * getMBlocksAt(void *addr, nat n);
+#endif
+
 #ifdef USE_STRIPED_ALLOCATOR
 extern void * getMBlockInChunk(nat chunk);
 extern void * getMBlocksInChunk(nat chunk, nat n);

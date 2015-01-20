@@ -258,6 +258,105 @@ static void *getCommittedMBlocks(nat n)
     return getCommittedMBlocksInChunk(0, n);
 }
 
+static void *getCommittedMBlocksAt(char *addr, nat n)
+{
+    nat chunk;
+    free_list **free_list_head;
+    W_ *mblock_high_watermark;
+    free_list *iter, *last;
+    free_list *new_iter;
+    W_ size = MBLOCK_SIZE * (W_)n;
+    W_ address = (W_)addr;
+
+#ifdef USE_STRIPED_ALLOCATOR
+    if ((W_)addr <= MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE)
+        chunk = 0;
+    else
+        chunk = ((W_)addr - MBLOCK_SPACE_BEGIN - MBLOCK_NORMAL_SPACE_SIZE)/
+            MBLOCK_CHUNK_SIZE;
+#endif
+
+    free_list_head = &free_list_heads[chunk];
+    mblock_high_watermark = &mblock_high_watermarks[chunk];
+
+    last = NULL;
+    for (iter = *free_list_head; iter != NULL; iter = iter->next)
+    {
+        last = iter;
+
+        // If we walk past the given address, we have no hope of
+        // finding a free range for this address
+        if (iter->address > address)
+            return NULL;
+
+        // If the free block ends exactly at address we have no
+        // hope of finding a free range (because the next byte
+        // is allocated, as the free list is compacted)
+        if (iter->address + iter->size == address)
+            return NULL;
+
+        // If the free block ends before the required address,
+        // try with the next free block
+        if (iter->address + iter->size < address)
+            continue;
+
+        // Cool, so address falls exactly in this free block
+        // Check that we have enough space
+        if (iter->address + iter->size < address + size)
+            return NULL;
+
+        // Awesome, we can use this block
+
+        // We want to allocate at the beginning, move the free block forward
+        if (iter->address == address) {
+            iter->address = address + size;
+            iter->size -= size;
+            return (void*)address;
+        }
+
+        // We want to allocate at the end, cut the free block at the end
+        if (iter->address + iter->size == address + size) {
+            iter->size -= size;
+            return (void*)address;
+        }
+
+        // We need to split!
+        new_iter = stgMallocBytes(sizeof(struct free_list), "getCommittedMBlocksAt");
+        new_iter->address = address + size;
+        new_iter->size = iter->address + iter->size - new_iter->address;
+        new_iter->next = iter->next;
+        new_iter->prev = iter;
+        if (new_iter->next)
+            new_iter->next->prev = new_iter;
+        iter->size = address - iter->address;
+        iter->next = new_iter;
+        return (void*)address;
+    }
+
+    // The address is not in the free list, check the high_watermark
+    if (address < *mblock_high_watermark)
+        return NULL;
+
+    if (address == *mblock_high_watermark) {
+        *mblock_high_watermark += size;
+        return (void*)address;
+    }
+
+    // Need to create a new free block
+    new_iter = stgMallocBytes(sizeof(struct free_list), "getCommittedMBlocksAt");
+    new_iter->address = *mblock_high_watermark;
+    *mblock_high_watermark = address + size;
+    new_iter->size = address - new_iter->address;
+    new_iter->next = NULL;
+    new_iter->prev = last;
+    if (last)
+        last->next = new_iter;
+    else
+        *free_list_head = new_iter;
+
+    return (void*)address;
+}
+
 static void decommitMBlocksInChunk(nat chunk, char *addr, nat n)
 {
     free_list **free_list_head;
@@ -667,6 +766,24 @@ getMBlocks(nat n)
 
     return ret;
 }
+
+#ifdef USE_LARGE_ADDRESS_SPACE
+void * getMBlocksAt(void *addr, nat n)
+{
+    void *ret;
+
+    ret = getCommittedMBlocksAt(addr, n);
+    if (ret == NULL)
+        return ret;
+
+    debugTrace(DEBUG_gc, "allocated %d megablock(s) at %p",n,ret);
+
+    mblocks_allocated += n;
+    peak_mblocks_allocated = stg_max(peak_mblocks_allocated, mblocks_allocated);
+
+    return ret;
+}
+#endif
 
 #ifdef USE_STRIPED_ALLOCATOR
 void *
