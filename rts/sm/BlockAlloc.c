@@ -880,12 +880,11 @@ void
 reportUnmarkedBlocks (void)
 {
     void *mblock;
-    void *state;
     bdescr *bd;
 
     debugBelch("Unreachable blocks:\n");
-    for (mblock = getFirstMBlock(&state); mblock != NULL;
-         mblock = getNextMBlock(&state, mblock)) {
+    for (mblock = getFirstMBlock(); mblock != NULL;
+         mblock = getNextMBlock(mblock)) {
         for (bd = FIRST_BDESCR(mblock); bd <= LAST_BDESCR(mblock); ) {
             if (!(bd->flags & BF_KNOWN) && bd->free != (P_)-1) {
                 debugBelch("  %p\n",bd);
