@@ -274,6 +274,8 @@ static void *getCommittedMBlocksAt(char *addr, nat n)
     else
         chunk = ((W_)addr - MBLOCK_SPACE_BEGIN - MBLOCK_NORMAL_SPACE_SIZE)/
             MBLOCK_CHUNK_SIZE;
+#else
+    chunk = 0;
 #endif
 
     free_list_head = &free_list_heads[chunk];
