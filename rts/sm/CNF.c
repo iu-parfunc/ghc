@@ -195,27 +195,21 @@ unroll_memcpy(StgPtr to, StgPtr from, StgWord size)
 }
 
 static rtsBool
-atomic_allocate (StgCompactNFDataBlock *block, StgWord sizeW, StgPtr *at)
+allocate_in_compact (StgCompactNFDataBlock *block, StgWord sizeW, StgPtr *at)
 {
     bdescr *bd;
     StgPtr top;
-    StgPtr expected_free, free;
+    StgPtr free;
 
     // There might be a better way to do this
 
     bd = Bdescr((StgPtr)block);
     top = bd->start + BLOCK_SIZE_W * bd->blocks;
- retry:
     if (bd->free + sizeW > top)
         return rtsFalse;
 
-    expected_free = bd->free;
-    free = (StgPtr)cas((StgVolatilePtr)&bd->free, (StgWord)expected_free,
-                       (StgWord)(expected_free + sizeW));
-
-    if (free != expected_free)
-        goto retry;
-
+    free = bd->free;
+    bd->free += sizeW;
     *at = free;
 
     return rtsTrue;
@@ -225,7 +219,7 @@ static rtsBool
 allocate_loop (StgCompactNFData *str, StgWord sizeW, StgPtr *at)
 {
     while (str->nursery != NULL) {
-        if (atomic_allocate(str->nursery, sizeW, at))
+        if (allocate_in_compact(str->nursery, sizeW, at))
             return rtsTrue;
 
         // There is no space in this block, treat it as fully occupied
