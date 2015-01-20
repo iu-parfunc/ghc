@@ -256,6 +256,24 @@ StgBool HEAP_ALLOCED_GC(void *p)
 # error HEAP_ALLOCED not defined
 #endif
 
+INLINE_HEADER nat
+mblock_address_get_chunk (void *p)
+{
+    nat chunk;
+
+#ifdef USE_STRIPED_ALLOCATOR
+    if ((W_)p <= MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE)
+        chunk = 0;
+    else
+        chunk = ((W_)p - MBLOCK_SPACE_BEGIN - MBLOCK_NORMAL_SPACE_SIZE)/
+            MBLOCK_CHUNK_SIZE;
+#else
+    chunk = 0;
+#endif
+
+    return chunk;
+}
+
 #include "EndPrivate.h"
 
 #endif /* SM_HEAP_ALLOC_H */

@@ -133,6 +133,19 @@ static void  initMBlock(void *mblock);
 
   checkFreeListSanity() checks all the invariants on the free lists.
 
+  Megablock bitmap
+  ~~~~~~~~~~~~~~~~
+
+  In addition to the previous code, we have a bitmap for each chunk
+  != 0, which is 1 if the megablock is a normally allocated megablock
+  (ie, one where the block descriptors are readable and valid), and 0
+  otherwise. We only keep the bitmap for the chunks we use, to avoid
+  using excessive memory, and we never create the bitmap for chunk 0
+  (which is private), which means that there is no memory overhead if
+  the striped allocator is disabled.
+  The bitmap is used for allocGroupAt(), to verify if it can read the
+  block descriptor and check if a block is allocated.
+
   --------------------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------------------
@@ -155,6 +168,100 @@ static void  initMBlock(void *mblock);
 
 static bdescr *free_lists[MBLOCK_NUM_CHUNKS + 1][MAX_FREE_LIST];
 static bdescr *free_mblock_lists[MBLOCK_NUM_CHUNKS + 1];
+
+enum {
+    MBLOCK_INVALID, // not read/writable - has to be 0
+    MBLOCK_FREE,    // alloced but in the free_mblock_lists
+    MBLOCK_ALLOCED, // alloced and in use as head of a mblock group
+    MBLOCK_ALLOCED_TAIL // alloced and in use as tail of a mblock group
+};
+
+#define MBLOCK_BITMAP_SIZE (MBLOCK_CHUNK_SIZE / MBLOCK_SIZE / 8 * 2) // 32 KB
+// If the mblock is read/writable
+static StgInt8 *mblock_bitmaps[MBLOCK_NUM_CHUNKS + 1];
+
+STATIC_INLINE StgWord
+mblock_bitmap_get (void *addr, nat i)
+{
+    nat chunk;
+    W_ bit;
+
+    chunk = mblock_address_get_chunk (addr);
+    ASSERT (chunk != 0);
+
+    if (mblock_bitmaps[chunk] == NULL)
+        return MBLOCK_INVALID;
+
+    bit = 2 * ((W_)addr - (MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE +
+                           (chunk-1) * MBLOCK_CHUNK_SIZE));
+    bit += 2 * i;
+
+    return (mblock_bitmaps[chunk][bit / 8] >>
+            (bit % 8));
+}
+
+static rtsBool
+mblock_bitmap_test_any_valid (void *addr, nat n)
+{
+    nat i;
+
+    for (i = 0; i < n; i++) {
+        if (mblock_bitmap_get(addr, i) != MBLOCK_INVALID)
+            return rtsTrue;
+    }
+    return rtsFalse;
+}
+
+static rtsBool
+mblock_bitmap_test_any_alloced (void *addr, nat n)
+{
+    nat i;
+
+    for (i = 0; i < n; i++) {
+        if (mblock_bitmap_get(addr, i) >= MBLOCK_ALLOCED)
+            return rtsTrue;
+    }
+    return rtsFalse;
+}
+
+static nat
+mblock_bitmap_find_first_valid (void *addr, nat n)
+{
+    nat i;
+
+    for (i = 0; i < n; i++) {
+        if (mblock_bitmap_get(addr, i) > MBLOCK_INVALID)
+            return i;
+    }
+    return -1;
+}
+
+static void
+mblock_bitmap_mark (void *addr, nat n, StgWord val)
+{
+    W_ base, bit;
+    nat chunk;
+    nat i;
+
+    chunk = mblock_address_get_chunk (addr);
+    if (chunk == 0)
+        return;
+
+    if (mblock_bitmaps[chunk] == NULL) {
+        mblock_bitmaps[chunk] = stgCallocBytes(MBLOCK_BITMAP_SIZE, 1,
+                                        "mblock_bitmap_mark");
+    }
+
+    val = val & 0x3;
+    base = 2 * ((W_)addr - (MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE +
+                           (chunk-1) * MBLOCK_CHUNK_SIZE));
+    for (i = 0; i < n; i++) {
+        bit = base + 2 * i;
+
+        mblock_bitmaps[chunk][bit / 8] &= ~(0x3 << (bit % 8));
+        mblock_bitmaps[chunk][bit / 8] |= val << (bit % 8);
+    }
+}
 
 // free_list[i] contains blocks that are at least size 2^i, and at
 // most size 2^(i+1) - 1.
@@ -298,6 +405,7 @@ alloc_mega_group (nat chunk, StgWord mblocks)
 {
     bdescr *best, *bd, *prev;
     StgWord n;
+    void *mblock;
 
     n = MBLOCK_GROUP_BLOCKS(mblocks);
 
@@ -331,14 +439,14 @@ alloc_mega_group (nat chunk, StgWord mblocks)
                           (best_mblocks-mblocks)*MBLOCK_SIZE);
 
         best->blocks = MBLOCK_GROUP_BLOCKS(best_mblocks - mblocks);
-        initMBlock(MBLOCK_ROUND_DOWN(bd));
+        mblock = MBLOCK_ROUND_DOWN(bd);
+        initMBlock(mblock);
     }
     else
     {
 #ifdef USE_STRIPED_ALLOCATOR
-        void *mblock = getMBlocksInChunk(chunk, mblocks);
+        mblock = getMBlocksInChunk(chunk, mblocks);
 #else
-        void *mblock;
         ASSERT (chunk == 0);
         mblock = getMBlocks(mblocks);
 #endif
@@ -346,6 +454,9 @@ alloc_mega_group (nat chunk, StgWord mblocks)
         bd = FIRST_BDESCR(mblock);
     }
     bd->blocks = MBLOCK_GROUP_BLOCKS(mblocks);
+    mblock_bitmap_mark(mblock, 1, MBLOCK_ALLOCED);
+    mblock_bitmap_mark((void*)((W_)mblock + MBLOCK_SIZE),
+                       mblocks - 1, MBLOCK_ALLOCED_TAIL);
     return bd;
 }
 
@@ -363,8 +474,6 @@ allocGroupInChunk (nat chunk, W_ n)
 
         mblocks = BLOCKS_TO_MBLOCKS(n);
 
-        // n_alloc_blocks doesn't count the extra blocks we get in a
-        // megablock group.
         n_alloc_blocks += mblocks * BLOCKS_PER_MBLOCK;
         if (n_alloc_blocks > hw_alloc_blocks) hw_alloc_blocks = n_alloc_blocks;
 
@@ -433,6 +542,214 @@ allocGroup (W_ n)
 {
     return allocGroupInChunk(0, n);
 }
+
+#ifdef USE_STRIPED_ALLOCATOR
+static bdescr *
+alloc_mega_group_at (void *mblock, StgWord mblocks)
+{
+    bdescr *bd, *result;
+    nat chunk;
+    void *r;
+
+    chunk = mblock_address_get_chunk(mblock);
+
+    // Test if any mblock is already in use
+    if (mblock_bitmap_test_any_alloced(mblock, mblocks))
+        return NULL;
+
+    // Test if all mblocks are free - if so, fast path to asking
+    // the MBlock layer directly
+    if (!mblock_bitmap_test_any_valid(mblock, mblocks)) {
+        // This will not fail because we know the mblocks are not
+        // valid
+        r = getMBlocksAt(mblock, mblocks);
+        ASSERT (r == mblock);
+        initMBlock(r);
+    } else {
+        nat first;
+        StgWord n;
+        void *addr;
+        bdescr *state, *iter, *prev;
+        // Slow path walking the free list
+
+        addr = mblock;
+        n = mblocks;
+        state = free_mblock_lists[chunk];
+
+        // Find the first block that is valid
+        while (n > 0) {
+            first = mblock_bitmap_find_first_valid(addr, n);
+            ASSERT (first != (nat)-1);
+
+            if (first != 0) {
+                // Allocate all mblocks up to the first valid one directly from
+                // the MBlock layer
+                r = getMBlocksAt(addr, first);
+                ASSERT (r == addr);
+                addr = (void*)((W_)r + first*MBLOCK_SIZE);
+                n -= first;
+            }
+
+            bd = FIRST_BDESCR (addr);
+            ASSERT (bd->free == (P_)-1);
+
+            // Find the right place in the free list
+            prev = NULL;
+            iter = state;
+            while (iter != bd) {
+                ASSERT (iter);
+                prev = iter;
+                iter = iter->link;
+            }
+            ASSERT (prev);
+
+            if (bd->blocks > MBLOCK_GROUP_BLOCKS(n)) {
+                // Allocate the first part of this free list item
+                // and replace it with iter, which used to point in the
+                // middle
+                iter = FIRST_BDESCR ((W_)MBLOCK_ROUND_DOWN(bd) +
+                                     n * MBLOCK_SIZE);
+                prev->link = iter;
+                iter->blocks = bd->blocks - MBLOCK_GROUP_BLOCKS(n);
+                n = 0;
+            } else {
+                // Allocate the entirety of this free list item
+                prev->link = iter->link;
+                addr = (void*)((W_)addr + BLOCKS_TO_MBLOCKS(iter->blocks) *
+                               MBLOCK_SIZE);
+                n -= BLOCKS_TO_MBLOCKS(iter->blocks);
+            }
+        }
+    }
+
+    result = FIRST_BDESCR(mblock);
+    initMBlock(mblock);
+    result->blocks = MBLOCK_GROUP_BLOCKS(mblocks);
+    mblock_bitmap_mark(mblock, 1, MBLOCK_ALLOCED);
+    mblock_bitmap_mark((void*)((W_)mblock + MBLOCK_SIZE),
+                       mblocks - 1, MBLOCK_ALLOCED_TAIL);
+
+    return result;
+}
+
+static bdescr *
+find_group_head (bdescr *bd)
+{
+    if (bd->blocks != 0)
+        return bd;
+
+    // Adjust the link to remove the history of coalesces
+    // that happened
+    return bd->link = find_group_head(bd->link);
+}
+
+bdescr *
+allocGroupAt (void *addr, W_ n)
+{
+    bdescr *bd, *head, *rem;
+    StgWord ln;
+    nat chunk;
+    void *mblock;
+    StgWord32 blocks;
+
+    if (n == 0) barf("allocGroupAt: requested zero blocks");
+
+    ASSERT (addr == BLOCK_ROUND_DOWN (addr));
+
+    chunk = mblock_address_get_chunk (addr);
+    ASSERT (chunk != 0 && chunk < MBLOCK_NUM_CHUNKS);
+
+    mblock = MBLOCK_ROUND_DOWN(addr);
+
+    if (n >= BLOCKS_PER_MBLOCK)
+    {
+        StgWord mblocks;
+
+        ASSERT (addr == FIRST_BLOCK(mblock));
+
+        mblocks = BLOCKS_TO_MBLOCKS(n);
+        bd = alloc_mega_group_at(mblock, mblocks);
+        if (bd == NULL)
+            return NULL;
+
+        n_alloc_blocks += mblocks * BLOCKS_PER_MBLOCK;
+        if (n_alloc_blocks > hw_alloc_blocks) hw_alloc_blocks = n_alloc_blocks;
+
+        // only the bdescrs of the first MB are required to be initialised
+        initGroup(bd);
+        goto finish;
+    }
+
+    // Fast path if the corresponding megablock is not allocated
+    if ((head = alloc_mega_group_at(mblock, 1))) {
+        n_alloc_blocks += BLOCKS_PER_MBLOCK;
+        if (n_alloc_blocks > hw_alloc_blocks) hw_alloc_blocks = n_alloc_blocks;
+
+        bd = Bdescr((P_) addr);
+        bd->blocks = n;
+        initGroup(bd);                   // we know the group will fit
+
+        if (head != bd) {
+            head->blocks = bd - head;
+            initGroup(head);
+            freeGroup(head);
+        }
+
+        rem = bd + n;
+        rem->blocks = BLOCKS_PER_MBLOCK-n;
+        initGroup(rem); // init the slop
+        freeGroup(rem); // add the slop on to the free list
+        goto finish;
+    }
+
+    ASSERT (mblock_bitmap_test_any_alloced(mblock, 1));
+
+    if (mblock_bitmap_get(mblock, 1) == MBLOCK_ALLOCED_TAIL) {
+        // In the middle of a mega group
+        return NULL;
+    }
+
+    bd = Bdescr((P_) addr);
+
+    head = find_group_head(bd);
+    ASSERT (bd >= head && bd < head + head->blocks);
+
+    if (head->free != (P_)-1 ||
+        head->blocks < n + (bd-head)) {
+        // This group is allocated (or there is not enough space)
+        return NULL;
+    }
+
+    // Yay, we can finally allocate!
+    n_alloc_blocks += n;
+    if (n_alloc_blocks > hw_alloc_blocks) hw_alloc_blocks = n_alloc_blocks;
+
+    // Find on which free list this block lives
+    blocks = head->blocks;
+    ln = log_2_ceil(blocks);
+
+    dbl_link_remove(head, &free_lists[chunk][ln]);
+    if (head != bd) {
+        head->blocks = bd - head;
+        setup_tail(head);
+        ln = log_2_ceil(head->blocks);
+        dbl_link_onto(head, &free_lists[chunk][ln]);
+    }
+
+    if (head + blocks > bd + n) {
+        rem = bd + n;
+        rem->blocks = blocks - n - (bd - head);
+        setup_tail(rem);
+        ln = log_2_ceil(rem->blocks);
+        dbl_link_onto(rem, &free_lists[chunk][ln]);
+    }
+
+finish:
+    IF_DEBUG(sanity, memset(bd->start, 0xaa, bd->blocks * BLOCK_SIZE));
+    IF_DEBUG(sanity, checkFreeListSanity());
+    return bd;
+}
+#endif
 
 //
 // Allocate a chunk of blocks that is at least min and at most max
@@ -552,6 +869,9 @@ free_mega_group (nat chunk, bdescr *mg)
 {
     bdescr *bd, *prev;
 
+    mblock_bitmap_mark(MBLOCK_ROUND_DOWN(mg), BLOCKS_TO_MBLOCKS(mg->blocks),
+                       MBLOCK_FREE);
+
     // Find the right place in the free list.  free_mblock_list is
     // sorted by *address*, not by size as the free_list is.
     prev = NULL;
@@ -591,15 +911,7 @@ freeGroup(bdescr *p)
 
   ASSERT(p->free != (P_)-1);
 
-#ifdef USE_STRIPED_ALLOCATOR
-    if ((W_)p <= MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE)
-        chunk = 0;
-    else
-        chunk = ((W_)p - MBLOCK_SPACE_BEGIN - MBLOCK_NORMAL_SPACE_SIZE)/
-            MBLOCK_CHUNK_SIZE;
-#else
-    chunk = 0;
-#endif
+  chunk = mblock_address_get_chunk (p);
 
   p->free = (void *)-1;  /* indicates that this block is free */
   p->gen = NULL;
@@ -641,6 +953,11 @@ freeGroup(bdescr *p)
               return;
           }
           setup_tail(p);
+          // Set up links to the new head (for allocGroupAt,
+          // which wants to look at an arbitrary point in the heap
+          // and find the head of a free group)
+          next->blocks = 0;
+          next->link = p;
       }
   }
 
@@ -661,6 +978,8 @@ freeGroup(bdescr *p)
               free_mega_group(chunk, prev);
               return;
           }
+          p->blocks = 0;
+          p->link = prev;
           p = prev;
       }
   }
@@ -768,6 +1087,7 @@ void returnMemoryToOS(nat n /* megablocks */)
                 freeAddr += newSize * MBLOCK_SIZE;
                 bd->blocks = MBLOCK_GROUP_BLOCKS(newSize);
                 freeMBlocks(freeAddr, n);
+                mblock_bitmap_mark((void*)freeAddr, n, MBLOCK_INVALID);
                 n = 0;
             }
             else {
@@ -775,6 +1095,7 @@ void returnMemoryToOS(nat n /* megablocks */)
                 n -= size;
                 bd = bd->link;
                 freeMBlocks(freeAddr, size);
+                mblock_bitmap_mark((void*)freeAddr, size, MBLOCK_INVALID);
             }
         }
 
