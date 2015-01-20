@@ -271,6 +271,7 @@ static void *getCommittedMBlocks(nat n)
     return getCommittedMBlocksInChunk(0, n);
 }
 
+#ifdef USE_STRIPED_ALLOCATOR
 static void *getCommittedMBlocksAt(char *addr, nat n)
 {
     nat chunk;
@@ -281,15 +282,7 @@ static void *getCommittedMBlocksAt(char *addr, nat n)
     W_ size = MBLOCK_SIZE * (W_)n;
     W_ address = (W_)addr;
 
-#ifdef USE_STRIPED_ALLOCATOR
-    if ((W_)addr <= MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE)
-        chunk = 0;
-    else
-        chunk = ((W_)addr - MBLOCK_SPACE_BEGIN - MBLOCK_NORMAL_SPACE_SIZE)/
-            MBLOCK_CHUNK_SIZE;
-#else
-    chunk = 0;
-#endif
+    chunk = mblock_address_get_chunk((void*)addr);
 
     free_list_head = &free_list_heads[chunk];
     mblock_high_watermark = &mblock_high_watermarks[chunk];
@@ -371,6 +364,7 @@ static void *getCommittedMBlocksAt(char *addr, nat n)
 
     return (void*)address;
 }
+#endif
 
 static void decommitMBlocksInChunk(nat chunk, char *addr, nat n)
 {
@@ -827,7 +821,7 @@ getMBlocks(nat n)
     return ret;
 }
 
-#ifdef USE_LARGE_ADDRESS_SPACE
+#ifdef USE_STRIPED_ALLOCATOR
 void * getMBlocksAt(void *addr, nat n)
 {
     void *ret;
@@ -843,9 +837,7 @@ void * getMBlocksAt(void *addr, nat n)
 
     return ret;
 }
-#endif
 
-#ifdef USE_STRIPED_ALLOCATOR
 void *
 getMBlockInChunk(nat chunk)
 {
