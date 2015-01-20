@@ -101,7 +101,7 @@ mkBlockList :: Compact# -> [(Ptr a, Word)]
 mkBlockList buffer = go (compactGetFirstBlock# buffer)
   where
     go :: (# Addr#, Word# #) -> [(Ptr a, Word)]
-    go (# block, size #) | addrIsNull block = []
+    go (# block, _ #) | addrIsNull block = []
     go (# block, size #) = let next = compactGetNextBlock# buffer block
                in
                 mkBlock block size : go next
