@@ -1,0 +1,16 @@
+*.stderr
+*.stdout
+.hpc.*
+*.eventlog
+*.genscript
+compact_append
+compact_simple
+compact_nospace
+compact_noshare
+compact_loop
+compact_resize
+compact_inc_append
+compact_inc_simple
+compact_inc_nospace
+compact_inc_noshare
+
