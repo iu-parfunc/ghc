@@ -289,6 +289,11 @@ bdescr *allocBlock(void);
 bdescr *allocGroup_lock(W_ n);
 bdescr *allocBlock_lock(void);
 
+#ifdef USE_STRIPED_ALLOCATOR
+bdescr *allocGroupInChunk(nat chunk, W_ n);
+bdescr *allocBlockInChunk(nat chunk);
+#endif
+
 /* De-Allocation ----------------------------------------------------------- */
 
 void freeGroup(bdescr *p);
