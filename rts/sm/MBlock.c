@@ -37,18 +37,15 @@ W_ mpc_misses = 0;
 
   Both code paths need to provide:
 
-  void *getFirstMBlock(void ** state)
+  void *getFirstMBlock(void)
       return the first (lowest address) mblock
       that was actually committed
 
-  void *getNextMBlock(void ** state, void * mblock)
+  void *getNextMBlock(void * mblock)
       return the first (lowest address) mblock
       that was committed, after the given one
 
-  For both these calls, @state is an in-out parameter that points to
-  an opaque state threading the calls togheter. The calls should only
-  be used in an interation fashion. Pass NULL if @state is not
-  interesting,or pass a pointer to NULL if you don't have a state.
+  The calls should only be used in an interation fashion.
 
   void *getCommittedMBlocks(nat n)
       return @n new mblocks, ready to be used (reserved and committed)
@@ -94,11 +91,25 @@ typedef struct free_list {
     W_ size;
 } free_list;
 
-static free_list *free_list_head;
-static W_ mblock_high_watermark;
+#ifndef USE_STRIPED_ALLOCATOR
+#define MBLOCK_NUM_CHUNKS 0
 W_ mblock_address_space_begin = 0;
+#define MBLOCK_SPACE_BEGIN mblock_address_space_begin
+#endif
 
-static void *getAllocatedMBlock(free_list **start_iter, W_ startingAt)
+// Note that chunk 0 is special because it is larger (it contains
+// the normal Haskell heap)
+static free_list *free_list_heads[MBLOCK_NUM_CHUNKS + 1];
+static W_         mblock_high_watermarks[MBLOCK_NUM_CHUNKS + 1];
+
+static struct {
+    free_list *iter;
+    nat        chunk_no;
+} iter_state;
+
+static void *getAllocatedMBlock(free_list **start_iter,
+                                W_          mblock_high_watermark,
+                                W_          startingAt)
 {
     free_list *iter;
     W_ p = startingAt;
@@ -120,39 +131,59 @@ static void *getAllocatedMBlock(free_list **start_iter, W_ startingAt)
     return (void*)p;
 }
 
-void * getFirstMBlock(void **state STG_UNUSED)
+static void *iterateFindMBlock(W_ startingAt)
 {
-    free_list *fake_state;
-    free_list **casted_state;
+    void *p;
 
-    if (state)
-        casted_state = (free_list**)state;
-    else
-        casted_state = &fake_state;
+    if (iter_state.chunk_no == 0) {
+        p = getAllocatedMBlock(&iter_state.iter,
+                               mblock_high_watermarks[0],
+                               startingAt);
+        if (p != NULL)
+            return p;
 
-    *casted_state = free_list_head;
-    return getAllocatedMBlock(casted_state, mblock_address_space_begin);
+        iter_state.iter = free_list_heads[1];
+        iter_state.chunk_no = 1;
+        startingAt = MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE;
+    }
+
+    while (iter_state.chunk_no <= MBLOCK_NUM_CHUNKS) {
+        p = getAllocatedMBlock(&iter_state.iter,
+                               mblock_high_watermarks[iter_state.chunk_no],
+                               startingAt);
+        if (p != NULL)
+            return p;
+
+        iter_state.chunk_no ++;
+        iter_state.iter = free_list_heads[iter_state.chunk_no];
+        startingAt = MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE +
+            (iter_state.chunk_no - 1) * MBLOCK_CHUNK_SIZE;
+    }
+
+    return NULL;
 }
 
-void * getNextMBlock(void **state STG_UNUSED, void *mblock)
+void * getFirstMBlock(void)
 {
-    free_list *fake_state = free_list_head;
-    free_list **casted_state;
+    iter_state.iter = free_list_heads[0];
+    iter_state.chunk_no = 0;
 
-    if (state)
-        casted_state = (free_list**)state;
-    else
-        casted_state = &fake_state;
-
-    return getAllocatedMBlock(casted_state, (W_)mblock + MBLOCK_SIZE);
+    return iterateFindMBlock(MBLOCK_SPACE_BEGIN);
 }
 
-static void *getReusableMBlocks(nat n)
+void * getNextMBlock(void *mblock)
+{
+    return iterateFindMBlock((W_)mblock + BLOCK_SIZE);
+}
+
+static void *getReusableMBlocks(free_list **free_list_head,
+                                nat         n)
 {
     struct free_list *iter;
     W_ size = MBLOCK_SIZE * (W_)n;
 
-    for (iter = free_list_head; iter != NULL; iter = iter->next) {
+    for (iter = *free_list_head; iter != NULL; iter = iter->next)
+    {
         void *addr;
 
         if (iter->size < size)
@@ -166,10 +197,14 @@ static void *getReusableMBlocks(nat n)
 
             prev = iter->prev;
             next = iter->next;
-            if (prev == NULL) {
-                ASSERT(free_list_head == iter);
-                free_list_head = next;
-            } else {
+
+            if (prev == NULL)
+            {
+                ASSERT(*free_list_head == iter);
+                *free_list_head = next;
+            }
+            else
+            {
                 prev->next = next;
             }
             if (next != NULL) {
@@ -185,13 +220,14 @@ static void *getReusableMBlocks(nat n)
     return NULL;
 }
 
-static void *getFreshMBlocks(nat n)
+static void *getFreshMBlocks(W_  *mblock_high_watermark,
+                             W_   mblock_alloc_max,
+                             nat  n)
 {
     W_ size = MBLOCK_SIZE * (W_)n;
-    void *addr = (void*)mblock_high_watermark;
+    void *addr = (void*)(*mblock_high_watermark);
 
-    if (mblock_high_watermark + size >
-        mblock_address_space_begin + MBLOCK_SPACE_SIZE)
+    if (*mblock_high_watermark + size > mblock_alloc_max)
     {
         // whoa, 1 TB of heap?
         errorBelch("out of memory");
@@ -199,33 +235,57 @@ static void *getFreshMBlocks(nat n)
     }
 
     osCommitMemory(addr, size);
-    mblock_high_watermark += size;
+    *mblock_high_watermark += size;
     return addr;
 }
 
-static void *getCommittedMBlocks(nat n)
+static void *getCommittedMBlocksInChunk(nat chunk, nat n)
 {
+    W_ *mblock_high_watermark;
+    free_list **free_list_head;
+    W_ mblock_alloc_max;
     void *p;
 
+<<<<<<< HEAD
     p = getReusableMBlocks(n);
     if (p == NULL) {
         p = getFreshMBlocks(n);
     }
+=======
+    mblock_high_watermark = &mblock_high_watermarks[chunk];
+    mblock_alloc_max = MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE
+        + chunk * MBLOCK_CHUNK_SIZE;
+    free_list_head = &free_list_heads[chunk];
+
+    p = getReusableMBlocks(free_list_head, n);
+    if (p == NULL)
+        p = getFreshMBlocks(mblock_high_watermark, mblock_alloc_max, n);
+>>>>>>> Add a striped allocator
 
     ASSERT(p != NULL && p != (void*)-1);
     return p;
 }
 
-static void decommitMBlocks(char *addr, nat n)
+static void *getCommittedMBlocks(nat n)
 {
+    return getCommittedMBlocksInChunk(0, n);
+}
+
+static void decommitMBlocksInChunk(nat chunk, char *addr, nat n)
+{
+    free_list **free_list_head;
+    W_ *mblock_high_watermark;
     struct free_list *iter, *prev;
     W_ size = MBLOCK_SIZE * (W_)n;
     W_ address = (W_)addr;
 
     osDecommitMemory(addr, size);
 
+    free_list_head = &free_list_heads[chunk];
+    mblock_high_watermark = &mblock_high_watermarks[chunk];
+
     prev = NULL;
-    for (iter = free_list_head; iter != NULL; iter = iter->next)
+    for (iter = *free_list_head; iter != NULL; iter = iter->next)
     {
         prev = iter;
 
@@ -289,15 +349,23 @@ static void decommitMBlocks(char *addr, nat n)
             new_iter->prev = iter->prev;
             if (new_iter->prev) {
                 new_iter->prev->next = new_iter;
+<<<<<<< HEAD
             } else {
                 ASSERT(iter == free_list_head);
                 free_list_head = new_iter;
+=======
+            else
+            {
+                ASSERT(iter == *free_list_head);
+                *free_list_head = new_iter;
+>>>>>>> Add a striped allocator
             }
             iter->prev = new_iter;
             return;
         }
     }
 
+<<<<<<< HEAD
     /* We're past the last free list entry, so we must
        be the highest allocation so far
     */
@@ -320,8 +388,58 @@ static void decommitMBlocks(char *addr, nat n)
         } else {
             ASSERT(free_list_head == NULL);
             free_list_head = new_iter;
+=======
+    if (iter == NULL)
+    {
+        /* We're past the last free list entry, so we must
+           be the highest allocation so far
+        */
+        ASSERT(address + size <= *mblock_high_watermark);
+
+        /* Fast path the case of releasing high or all memory */
+        if (address + size == *mblock_high_watermark)
+        {
+            *mblock_high_watermark -= size;
+        }
+        else
+        {
+            struct free_list *new_iter;
+
+            new_iter = stgMallocBytes(sizeof(struct free_list), "freeMBlocks");
+            new_iter->address = address;
+            new_iter->size = size;
+            new_iter->next = NULL;
+            new_iter->prev = prev;
+            if (new_iter->prev)
+            {
+                ASSERT(new_iter->prev->next == NULL);
+                new_iter->prev->next = new_iter;
+            }
+            else
+            {
+                ASSERT(*free_list_head == NULL);
+                *free_list_head = new_iter;
+            }
+>>>>>>> Add a striped allocator
         }
     }
+}
+
+static void decommitMBlocks(char *addr, nat n)
+{
+    nat chunk;
+
+#ifdef USE_STRIPED_ALLOCATOR
+    if ((W_)addr <= MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE)
+        chunk = 0;
+    else
+        chunk = ((W_)addr - MBLOCK_SPACE_BEGIN - MBLOCK_NORMAL_SPACE_SIZE)/
+            MBLOCK_CHUNK_SIZE;
+#else
+    chunk = 0;
+#endif
+
+    return decommitMBlocksInChunk(chunk, addr, n);
 }
 
 void releaseFreeMemory(void)
@@ -335,7 +453,32 @@ void releaseFreeMemory(void)
     debugTrace(DEBUG_gc, "mblock_high_watermark: %p\n", mblock_high_watermark);
 }
 
+<<<<<<< HEAD
 #else // !USE_LARGE_ADDRESS_SPACE
+=======
+static void freeOneFreeList(nat chunk)
+{
+    struct free_list *iter, *next;
+
+    for (iter = free_list_heads[chunk]; iter != NULL; iter = next)
+    {
+        next = iter->next;
+        stgFree(iter);
+    }
+    free_list_heads[chunk] = NULL;
+    mblock_high_watermarks[chunk] = (W_)-1;
+}
+
+static void freeAllFreeLists(void)
+{
+    nat i;
+
+    for (i = 0; i <= MBLOCK_NUM_CHUNKS; i++)
+        freeOneFreeList(i);
+}
+
+#else // USE_LARGE_ADDRESS_SPACE
+>>>>>>> Add a striped allocator
 
 #if SIZEOF_VOID_P == 4
 StgWord8 mblock_map[MBLOCK_MAP_SIZE]; // initially all zeros
@@ -442,7 +585,7 @@ void * mapEntryToMBlock(nat i)
     return (void *)((StgWord)i << MBLOCK_SHIFT);
 }
 
-void * getFirstMBlock(void **state STG_UNUSED)
+void * getFirstMBlock(void)
 {
     nat i;
 
@@ -452,7 +595,7 @@ void * getFirstMBlock(void **state STG_UNUSED)
     return NULL;
 }
 
-void * getNextMBlock(void **state STG_UNUSED, void *mblock)
+void * getNextMBlock(void *mblock)
 {
     nat i;
 
@@ -464,7 +607,7 @@ void * getNextMBlock(void **state STG_UNUSED, void *mblock)
 
 #elif SIZEOF_VOID_P == 8
 
-void * getNextMBlock(void **state STG_UNUSED, void *p)
+void * getNextMBlock(void *p)
 {
     MBlockMap *map;
     nat off, j;
@@ -501,7 +644,7 @@ void * getNextMBlock(void **state STG_UNUSED, void *p)
     return NULL;
 }
 
-void * getFirstMBlock(void **state STG_UNUSED)
+void * getFirstMBlock(void)
 {
     MBlockMap *map = mblock_maps[0];
     nat line_no, off;
@@ -583,6 +726,32 @@ getMBlocks(nat n)
     return ret;
 }
 
+#ifdef USE_STRIPED_ALLOCATOR
+void *
+getMBlockInChunk(nat chunk)
+{
+    return getMBlocksInChunk(chunk, 1);
+}
+
+// The external interface: allocate 'n' mblocks, and return the
+// address.
+
+void *
+getMBlocksInChunk(nat chunk, nat n)
+{
+    void *ret;
+
+    ret = getCommittedMBlocksInChunk(chunk, n);
+
+    debugTrace(DEBUG_gc, "allocated %d megablock(s) at %p",n,ret);
+
+    mblocks_allocated += n;
+    peak_mblocks_allocated = stg_max(peak_mblocks_allocated, mblocks_allocated);
+
+    return ret;
+}
+#endif
+
 void
 freeMBlocks(void *addr, nat n)
 {
@@ -599,20 +768,8 @@ freeAllMBlocks(void)
     debugTrace(DEBUG_gc, "freeing all megablocks");
 
 #ifdef USE_LARGE_ADDRESS_SPACE
-    {
-        struct free_list *iter, *next;
-
-        for (iter = free_list_head; iter != NULL; iter = next)
-        {
-            next = iter->next;
-            stgFree(iter);
-        }
-    }
-
+    freeAllFreeLists();
     osReleaseHeapMemory();
-
-    mblock_address_space_begin = (W_)-1;
-    mblock_high_watermark = (W_)-1;
 #else
     osFreeAllMBlocks();
 
@@ -634,10 +791,22 @@ initMBlocks(void)
 
 #ifdef USE_LARGE_ADDRESS_SPACE
     {
+#ifdef USE_STRIPED_ALLOCATOR
+        nat i;
+
+        osReserveHeapMemory();
+
+        mblock_high_watermarks[0] = MBLOCK_SPACE_BEGIN;
+        for (i = 0; i < MBLOCK_NUM_CHUNKS; i++) {
+            mblock_high_watermarks[i+1] = MBLOCK_SPACE_BEGIN +
+                MBLOCK_NORMAL_SPACE_SIZE + i * MBLOCK_CHUNK_SIZE;
+        }
+#else
         void *addr = osReserveHeapMemory();
 
         mblock_address_space_begin = (W_)addr;
         mblock_high_watermark = (W_)addr;
+#endif
     }
 #elif SIZEOF_VOID_P == 8
     memset(mblock_cache,0xff,sizeof(mblock_cache));
