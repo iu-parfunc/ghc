@@ -37,7 +37,6 @@ module Data.Compact.Monad (
   ) where
 
 import Control.Monad
-import Control.Applicative
 import Data.Compact.Incremental
 
 newtype CompactM b a = CompactM {
