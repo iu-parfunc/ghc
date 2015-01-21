@@ -27,9 +27,15 @@ void              compactResize(Capability       *cap,
                                 StgCompactNFData *str,
                                 StgWord           new_size);
 void              compactFree  (StgCompactNFData *str);
-void              compactMarkKnown (StgCompactNFData *str);
+void              compactMarkKnown(StgCompactNFData *str);
 StgWord           compactContains(StgCompactNFData *str,
                                   StgPtr            what);
+
+StgCompactNFDataBlock *compactAllocateBlockAt(Capability            *cap,
+                                              StgPtr                 addr,
+                                              StgWord                size,
+                                              StgCompactNFDataBlock *previous);
+StgWord                compactFixupPointers  (StgCompactNFData      *str);
 
 INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure);
 INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure)
