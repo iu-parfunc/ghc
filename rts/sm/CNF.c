@@ -654,3 +654,298 @@ compactContains (StgCompactNFData *str, StgPtr what)
     return (bd->flags & BF_COMPACT) != 0 &&
         (str == NULL || objectGetCompact((StgClosure*)what) == str);
 }
+
+#ifdef USE_STRIPED_ALLOCATOR
+static StgCompactNFDataBlock *
+compactDoAllocateBlockAt(Capability *cap, void *addr, StgWord aligned_size, rtsBool linkGeneration)
+{
+    StgCompactNFDataBlock *self;
+    bdescr *block;
+    nat n_blocks;
+
+    n_blocks = aligned_size / BLOCK_SIZE;
+
+    // Attempting to allocate an object larger than maxHeapSize
+    // should definitely be disallowed.  (bug #1791)
+    if ((RtsFlags.GcFlags.maxHeapSize > 0 &&
+         n_blocks >= RtsFlags.GcFlags.maxHeapSize) ||
+        n_blocks >= HS_INT32_MAX)   // avoid overflow when
+                                    // calling allocGroup() below
+    {
+        heapOverflow();
+        // heapOverflow() doesn't exit (see #2592), but we aren't
+        // in a position to do a clean shutdown here: we
+        // either have to allocate the memory or exit now.
+        // Allocating the memory would be bad, because the user
+        // has requested that we not exceed maxHeapSize, so we
+        // just exit.
+        stg_exit(EXIT_HEAPOVERFLOW);
+    }
+
+    ACQUIRE_SM_LOCK;
+    block = allocGroupAt(addr, n_blocks);
+    if (block == NULL) {
+        // argh, we could not allocate where we wanted
+        // allocate somewhere in the chunk where this compact comes from
+        // and we'll do a pointer adjustment pass later
+        block = allocGroupInChunk(mblock_address_get_chunk(addr), n_blocks);
+    }
+
+    if (linkGeneration)
+        dbl_link_onto(block, &g0->compact_objects);
+    g0->n_compact_blocks += block->blocks;
+    RELEASE_SM_LOCK;
+
+    cap->total_allocated += aligned_size / sizeof(StgWord);
+
+    // Unlike compactAllocate(), we do not initialize self here
+    // because the caller is about to overwrite everything anyway
+    self = (StgCompactNFDataBlock*) block->start;
+    self->self = self;
+    self->next = NULL;
+
+    if (linkGeneration)
+        initBdescr(block, g0, g0);
+    for ( ; n_blocks > 0; block++, n_blocks--)
+        block->flags = BF_COMPACT;
+
+    return self;
+}
+
+STATIC_INLINE rtsBool
+can_alloc_group_at (void    *addr,
+                    StgWord  size)
+{
+    if (BLOCK_ROUND_DOWN (addr) != addr)
+        return rtsFalse;
+
+    if (size >= BLOCKS_PER_MBLOCK * BLOCK_SIZE) {
+        if (FIRST_BLOCK(MBLOCK_ROUND_DOWN(addr)) != (void*)addr)
+            return rtsFalse;
+    } else {
+        if (MBLOCK_ROUND_DOWN(addr) != MBLOCK_ROUND_DOWN((W_)addr + size))
+            return rtsFalse;
+    }
+
+    return rtsTrue;
+}
+#endif // USE_STRIPED_ALLOCATOR
+
+StgCompactNFDataBlock *
+compactAllocateBlockAt(Capability            *cap,
+                       StgPtr                 addr,
+                       StgWord                size,
+                       StgCompactNFDataBlock *previous)
+{
+    StgWord aligned_size;
+    StgCompactNFDataBlock *block;
+    bdescr *bd;
+
+    aligned_size = BLOCK_ROUND_UP(size);
+
+#ifdef USE_STRIPED_ALLOCATOR
+    // Sanity check the address before making bogus calls to the
+    // block allocator
+    if (can_alloc_group_at(addr, aligned_size))
+        block = compactDoAllocateBlockAt(cap, addr, aligned_size,
+                                         previous == NULL);
+    else
+        block = compactAllocateBlock(cap, aligned_size,
+                                     previous == NULL);
+#else
+    block = compactAllocateBlock(cap, aligned_size,
+                                 previous == NULL);
+#endif
+
+    if ((P_)block != addr && previous != NULL)
+        previous->next = block;
+
+    bd = Bdescr((P_)block);
+    bd->free = (P_)((W_)bd->free + size);
+
+    // Even though the caller will soon fill block with the original
+    // contents, set block->next to NULL
+    // This way, if we are GCed before the caller has time to call us again
+    // we won't see a dangling pointer
+    block->next = NULL;
+
+    return block;
+}
+
+STATIC_INLINE rtsBool
+any_needs_fixup(StgCompactNFDataBlock *block)
+{
+    // ->next pointers are always valid, even if some blocks were
+    // not allocated where we want them, because compactAllocateAt()
+    // will take care to adjust them
+
+    do {
+        if (block->self != block)
+            return rtsTrue;
+        block = block->next;
+    } while (block);
+
+    return rtsFalse;
+}
+
+STATIC_INLINE StgCompactNFDataBlock *
+find_pointer(StgCompactNFData *str, StgClosure *q)
+{
+    StgCompactNFDataBlock *block;
+    StgWord address = (W_)q;
+
+    block = (StgCompactNFDataBlock*)((W_)str - sizeof(StgCompactNFDataBlock));
+    do {
+        bdescr *bd;
+        StgWord size;
+
+        bd = Bdescr((P_)block);
+        size = bd->free - bd->start;
+        if ((W_)block->self <= address &&
+            address < (W_)block->self + size) {
+            return block;
+        }
+
+        block = block->next;
+    } while(block);
+
+    // We should never get here
+    return NULL;
+}
+
+static rtsBool
+fixup_one_pointer(StgCompactNFData *str, StgClosure **p)
+{
+    StgWord tag;
+    StgClosure *q;
+    StgCompactNFDataBlock *block;
+
+    q = *p;
+    tag = GET_CLOSURE_TAG(q);
+    q = UNTAG_CLOSURE(q);
+
+    if (!HEAP_ALLOCED(q))
+        return rtsTrue;
+
+    block = find_pointer(str, q);
+    if (block == NULL)
+        return rtsFalse;
+    if (block == block->self)
+        return rtsTrue;
+
+    q = (StgClosure*)((W_)q - (W_)block->self + (W_)block);
+    *p = TAG_CLOSURE(tag, q);
+
+    return rtsTrue;
+}
+
+static rtsBool
+fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
+{
+    StgInfoTable *info;
+    bdescr *bd;
+    StgPtr p;
+
+    bd = Bdescr((P_)block);
+    p = bd->start;
+    while (p < bd->free) {
+        ASSERT (LOOKS_LIKE_CLOSURE_PTR(p));
+        info = get_itbl((StgClosure*)p);
+
+        switch (info->type) {
+        case CONSTR_1_0:
+            if (!fixup_one_pointer(str, &((StgClosure*)p)->payload[0]))
+                return rtsFalse;
+        case CONSTR_0_1:
+            p += sizeofW(StgClosure) + 1;
+            break;
+
+        case CONSTR_2_0:
+            if (!fixup_one_pointer(str, &((StgClosure*)p)->payload[1]))
+                return rtsFalse;
+        case CONSTR_1_1:
+            if (!fixup_one_pointer(str, &((StgClosure*)p)->payload[0]))
+                return rtsFalse;
+        case CONSTR_0_2:
+            p += sizeofW(StgClosure) + 2;
+            break;
+
+        case CONSTR:
+        case PRIM:
+        {
+            StgPtr end;
+
+            end = (P_)((StgClosure *)p)->payload + info->layout.payload.ptrs;
+            for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
+                if (!fixup_one_pointer(str, (StgClosure **)p))
+                    return rtsFalse;
+            }
+            p += info->layout.payload.nptrs;
+            break;
+        }
+
+        default:
+            debugBelch("Invalid non-NFData closure in Compact\n");
+            return rtsFalse;
+        }
+    }
+
+    return rtsTrue;
+}
+
+static rtsBool
+fixup_loop(StgCompactNFData *str, StgCompactNFDataBlock *block)
+{
+    do {
+        if (!fixup_block(str, block))
+            return rtsFalse;
+
+        block = block->next;
+    } while(block);
+
+    return rtsTrue;
+}
+
+static void
+fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
+{
+    bdescr *bd;
+    StgCompactNFDataBlock *nursery;
+    StgCompactNFDataBlock *last;
+
+    nursery = block;
+    do {
+        bd = Bdescr((P_)block);
+        if (bd->free != bd->start)
+            nursery = block;
+        last = block;
+
+        block->self = block;
+        block = block->next;
+    } while(block);
+
+    str->nursery = nursery;
+    str->last = last;
+}
+
+StgWord
+compactFixupPointers(StgCompactNFData *str)
+{
+    StgCompactNFDataBlock *block;
+
+    // We don't fixup info tables, just sanity check the one for
+    // Compact#
+    ASSERT(GET_INFO((StgClosure*)str) == &stg_COMPACT_NFDATA_info);
+
+    block = (StgCompactNFDataBlock*)((W_)str - sizeof(StgCompactNFDataBlock));
+
+    // Fast path
+    if (!any_needs_fixup(block))
+        return 1;
+
+    if (!fixup_loop(str, block))
+        return 0;
+
+    fixup_late(str, block);
+    return 1;
+}
