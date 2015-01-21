@@ -50,7 +50,6 @@ import GHC.Prim (compactNew#,
                  compactAppendOne#,
                  compactContains#,
                  compactContainsAny#,
-                 Addr#,
                  anyToAddr#,
                  )
 -- We need to import Word from GHC.Types to see the representation
