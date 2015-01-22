@@ -58,24 +58,23 @@
 # endif
 
 // We have a little less than 127 TB total of address space (the most I could
-// get is 131071 GB, with static linking and ASLR disabled). To be conservative,
+// get is 131071 GB, with static linking and ASLR disabled), over a theoretical
+// limit of 128 TB (47 bits). To be conservative,
 // we leave 1 TB of low space (code, static data, C heap), followed by 1 TB of
-// normal heap and 983 chunks of 128 GB each, for a total of 126848 GB (983
-// chosen because it is prime and hopefully not to close to the maximum - 991 or
-// 997 might work too but let's not risk it)
-//
-// The chunk size has been chosen to have ~1000 buckets, which should be
-// enough to accomodate a medium-size cluster (500-700 nodes)
+// normal heap and 256 chunks of 128 GB each, for a total of 34 TB
 //
 // Note that it is imperative that initialization happens before the
 // second thread is spawned, otherwise the glibc might go and allocate
 // another malloc arena in the wrong place, which would spray our tight
-// adddress space and make mmap fail
+// adddress space and make mmap overwrite existing data
+// (Also note that mmap will not fail if we ask it allocate in the wrong
+// place! We'll just remap everything PROT_NONE, which is a guaranteed
+// segfault very soon)
 
 # define MBLOCK_SPACE_BEGIN       ((StgWord)1 << 40) /* 1 TB */
 # define MBLOCK_NORMAL_SPACE_SIZE ((StgWord)1 << 40) /* 1 TB */
-# define MBLOCK_CHUNK_SIZE        ((StgWord)128 << 30) /* 512 GB */
-# define MBLOCK_NUM_CHUNKS        983
+# define MBLOCK_CHUNK_SIZE        ((StgWord)128 << 30) /* 128 GB */
+# define MBLOCK_NUM_CHUNKS        256
 # define MBLOCK_SPACE_SIZE        (MBLOCK_CHUNK_SIZE * MBLOCK_NUM_CHUNKS + \
                                    MBLOCK_NORMAL_SPACE_SIZE)
 
