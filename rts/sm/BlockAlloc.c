@@ -181,6 +181,18 @@ enum {
 static StgInt8 *mblock_bitmaps[MBLOCK_NUM_CHUNKS + 1];
 
 STATIC_INLINE StgWord
+mblock_bitmap_get_bit (void *addr, nat chunk)
+{
+    StgWord mblock_counter;
+
+    mblock_counter = ((W_)addr - (MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE +
+                                  (chunk-1) * MBLOCK_CHUNK_SIZE));
+    mblock_counter /= MBLOCK_SIZE;
+
+    return 2 * mblock_counter;
+}
+
+STATIC_INLINE StgWord
 mblock_bitmap_get (void *addr, nat i)
 {
     nat chunk;
@@ -192,8 +204,7 @@ mblock_bitmap_get (void *addr, nat i)
     if (mblock_bitmaps[chunk] == NULL)
         return MBLOCK_INVALID;
 
-    bit = 2 * ((W_)addr - (MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE +
-                           (chunk-1) * MBLOCK_CHUNK_SIZE));
+    bit = mblock_bitmap_get_bit (addr, chunk);
     bit += 2 * i;
 
     return (mblock_bitmaps[chunk][bit / 8] >>
@@ -253,8 +264,7 @@ mblock_bitmap_mark (void *addr, nat n, StgWord val)
     }
 
     val = val & 0x3;
-    base = 2 * ((W_)addr - (MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE +
-                           (chunk-1) * MBLOCK_CHUNK_SIZE));
+    base = mblock_bitmap_get_bit (addr, chunk);
     for (i = 0; i < n; i++) {
         bit = base + 2 * i;
 
@@ -299,6 +309,7 @@ initGroup(bdescr *head)
 {
   bdescr *bd;
   W_ i, n;
+  nat chunk;
 
   // If this block group fits in a single megablock, initialize
   // all of the block descriptors.  Otherwise, initialize *only*
@@ -307,7 +318,14 @@ initGroup(bdescr *head)
   // block group. (This is because it is impossible to do, as the
   // block descriptor table for the second mblock will get overwritten
   // by contiguous user data.)
-  n = head->blocks > BLOCKS_PER_MBLOCK ? 1 : head->blocks;
+  //
+  // The above is true unless we're in a chunk != 0, because then
+  // the invariant is that all block descriptors for the first megablock
+  // are allocate - otherwise allocGroupAt() will not work
+
+  chunk = mblock_address_get_chunk(head);
+  n = head->blocks > BLOCKS_PER_MBLOCK ?
+      (chunk == 0 ? 1 : BLOCKS_PER_MBLOCK) : head->blocks;
   head->free   = head->start;
   head->link   = NULL;
   for (i=1, bd = head+1; i < n; i++, bd++) {
@@ -914,6 +932,9 @@ freeGroup(bdescr *p)
 
   ASSERT(p->free != (P_)-1);
 
+  // Tricky: the chunk of a block descriptor is the same as the
+  // chunk of the block it describes (because they live in the same
+  // mblock)
   chunk = mblock_address_get_chunk (p);
 
   p->free = (void *)-1;  /* indicates that this block is free */
