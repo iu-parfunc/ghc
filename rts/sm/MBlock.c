@@ -472,16 +472,7 @@ static void decommitMBlocks(char *addr, nat n)
 {
     nat chunk;
 
-#ifdef USE_STRIPED_ALLOCATOR
-    if ((W_)addr <= MBLOCK_SPACE_BEGIN + MBLOCK_NORMAL_SPACE_SIZE)
-        chunk = 0;
-    else
-        chunk = ((W_)addr - MBLOCK_SPACE_BEGIN - MBLOCK_NORMAL_SPACE_SIZE)/
-            MBLOCK_CHUNK_SIZE;
-#else
-    chunk = 0;
-#endif
-
+    chunk = mblock_address_get_chunk ((void*)addr);
     return decommitMBlocksInChunk(chunk, addr, n);
 }
 
