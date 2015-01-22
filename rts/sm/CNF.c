@@ -30,31 +30,6 @@
 #include <limits.h>
 #endif
 
-#ifdef USE_STRIPED_ALLOCATOR
-static nat
-computeOwnChunk(void)
-{
-    static char hostname[_POSIX_HOST_NAME_MAX + 1];
-    static nat chunk;
-    nat hash, len, i;
-
-    if (chunk != 0)
-        return chunk;
-
-    gethostname(hostname, sizeof(hostname));
-
-    len = strlen(hostname);
-    hash = 0;
-    for (i = 0; i < len; i++)
-        hash = hash ^ ((nat)hostname[i] << (i % 4));
-    hash = hash ^ getpid();
-
-    chunk = 1 + hash % MBLOCK_NUM_CHUNKS;
-
-    return chunk;
-}
-#endif
-
 static StgCompactNFDataBlock *
 compactAllocateBlock(Capability *cap, StgWord aligned_size, rtsBool linkGeneration)
 {
@@ -83,7 +58,7 @@ compactAllocateBlock(Capability *cap, StgWord aligned_size, rtsBool linkGenerati
 
     ACQUIRE_SM_LOCK;
 #ifdef USE_STRIPED_ALLOCATOR
-    block = allocGroupInChunk(computeOwnChunk(), n_blocks);
+    block = allocGroupInChunk(RtsFlags.GcFlags.sharedChunk, n_blocks);
 #else
     block = allocGroup(n_blocks);
 #endif
