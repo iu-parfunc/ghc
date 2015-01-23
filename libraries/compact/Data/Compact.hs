@@ -35,7 +35,9 @@ module Data.Compact (
   compactAppendNoShare,
   compactResize,
 
+  SerializedCompact(..),
   withCompactPtrs,
+  compactImport,
   ) where
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
@@ -56,7 +58,9 @@ import Data.Compact.Imp(Compact(..),
                         compactGetBuffer,
                         compactResize,
                         compactAppendEvaledInternal,
-                        withCompactPtrs)
+                        SerializedCompact(..),
+                        withCompactPtrs,
+                        compactImport)
 
 compactAppendInternal :: NFData a => Compact# -> a -> Int# -> State# RealWorld ->
                         (# State# RealWorld, Maybe (Compact a) #)
