@@ -40,6 +40,7 @@ module Data.Compact.Imp(
 
   SerializedCompact(..),
   withCompactPtrs,
+  compactImport,
 ) where
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
@@ -48,6 +49,8 @@ import GHC.Prim (Compact#,
                  compactResize#,
                  compactGetFirstBlock#,
                  compactGetNextBlock#,
+                 compactAllocateBlockAt#,
+                 compactFixupPointers#,
                  Addr#,
                  nullAddr#,
                  eqAddr#,
@@ -92,7 +95,7 @@ compactAppendEvaledInternal buffer root share s =
   case compactAppend# buffer root share s of
     (# s', rootAddr #) -> (# s', maybeMakeCompact buffer rootAddr #)
 
-data SerializedCompact a b = SerializedCompact {
+data SerializedCompact a = SerializedCompact {
   serializedCompactGetBlockList :: [(Ptr a, Word)],
   serializedCompactGetRoot :: Ptr a
   }
@@ -109,8 +112,71 @@ mkBlockList buffer = go (compactGetFirstBlock# buffer)
     mkBlock :: Addr# -> Word# -> (Ptr a, Word)
     mkBlock block size = (Ptr block, W# size)
 
-withCompactPtrs :: Compact a -> (SerializedCompact a b -> c) -> c
+withCompactPtrs :: Compact a -> (SerializedCompact a -> c) -> c
 withCompactPtrs (Compact buffer rootAddr) func =
   let serialized = SerializedCompact (mkBlockList buffer) (Ptr rootAddr)
   in
    func serialized
+
+fixupPointers :: Addr# -> Addr# -> State# RealWorld -> (# State# RealWorld, Maybe (Compact a) #)
+fixupPointers firstBlock rootAddr s =
+  case compactFixupPointers# firstBlock rootAddr s of
+    (# s', buffer, adjustedRoot #) ->
+      if addrIsNull adjustedRoot then (# s', Nothing #)
+      else (# s', Just $ Compact buffer adjustedRoot #)
+
+compactImport :: SerializedCompact a -> (Ptr a -> Word -> IO ()) -> IO (Maybe (Compact a))
+
+-- what we would like is
+{-
+ importCompactPtrs ((firstAddr, firstSize):rest) = do
+   (firstBlock, compact) <- compactAllocateAt firstAddr firstSize 
+ #nullAddr
+   fillBlock firstBlock firstAddr firstSize
+   let go prev [] = return ()
+       go prev ((addr, size):rest) = do
+         (block, _) <- compactAllocateAt addr size prev
+         fillBlock block addr size
+         go block rest
+   go firstBlock rest
+   if isTrue# (compactFixupPointers compact) then
+     return $ Just compact
+     else
+     return Nothing
+
+But we can't do that because IO Addr# is not valid (kind mismatch)
+This check exists to prevent a polymorphic data constructor from using
+an unlifted type (which would break GC) - it would not a problem for IO
+because IO stores a function, not a value, but the kind check is there
+anyway.
+Note that by the reasoning, we cannot do IO (# Addr#, Word# #), nor
+we can do IO (Addr#, Word#) (that would break the GC for real!)
+
+And therefore we need to do everything with State# explicitly.
+-}
+
+-- just do shut up GHC
+compactImport (SerializedCompact [] _) _ = return Nothing
+compactImport (SerializedCompact ((Ptr firstAddr, W# firstSize):otherBlocks) (Ptr rootAddr)) filler =
+  IO (\s0 -> case compactAllocateBlockAt# firstAddr firstSize nullAddr# s0 of
+         (# s1, firstBlock #) ->
+           case fillBlock firstBlock firstSize s1 of
+             (# s2 #) ->
+               case go firstBlock otherBlocks s2 of
+                 (# s3 #) -> fixupPointers firstBlock rootAddr s3 )
+  where
+    -- the additional level of tupling in the result is to make sure that
+    -- the cases above are strict, which ensures operations are done in the
+    -- order they are specified
+    -- (they are unboxed tuples, which represent nothing at the Cmm level
+    -- so it is not a problem)
+    fillBlock :: Addr# -> Word# -> State# RealWorld -> (# State# RealWorld #)
+    fillBlock addr size s = case filler (Ptr addr) (W# size) of
+      IO action -> case action s of
+        (# s', _ #) -> (# s' #)
+
+    go :: Addr# -> [(Ptr a, Word)] -> State# RealWorld -> (# State# RealWorld #)
+    go _ [] s = (# s #)
+    go previous ((Ptr addr, W# size):rest) s =
+      case compactAllocateBlockAt# addr size previous s of
+        (# s', block #) -> go block rest s'
