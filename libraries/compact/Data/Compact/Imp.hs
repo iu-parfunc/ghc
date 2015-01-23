@@ -211,7 +211,7 @@ compactImportByteStrings serialized stringList =
         filler to size = do
           -- this pattern match will never fail
           (next:rest) <- readIORef state
-          let (fp, off, len) = toForeignPtr next
+          let (fp, off, _) = toForeignPtr next
           withForeignPtr fp $ \from -> do
             copyBytes to (from `plusPtr` off) (fromIntegral size)
           writeIORef state rest
