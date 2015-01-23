@@ -41,6 +41,7 @@ module Data.Compact.Imp(
   SerializedCompact(..),
   withCompactPtrs,
   compactImport,
+  compactImportByteStrings,
 ) where
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
@@ -63,8 +64,15 @@ import GHC.Prim (Compact#,
 -- We need to import Word from GHC.Types to see the representation
 -- and to able to access the Word# to pass down the primops
 import GHC.Types (IO(..), Word(..), isTrue#)
+import GHC.Word (Word8)
 
-import GHC.Ptr (Ptr(..))
+import GHC.Ptr (Ptr(..), plusPtr)
+
+import qualified Data.ByteString as ByteString
+import Data.ByteString.Internal(toForeignPtr)
+import Data.IORef(newIORef, readIORef, writeIORef)
+import Foreign.ForeignPtr(withForeignPtr)
+import Foreign.Marshal.Utils(copyBytes)
 
 data Compact a = Compact Compact# Addr#
 
@@ -125,7 +133,7 @@ fixupPointers firstBlock rootAddr s =
       if addrIsNull adjustedRoot then (# s', Nothing #)
       else (# s', Just $ Compact buffer adjustedRoot #)
 
-compactImport :: SerializedCompact a -> (Ptr a -> Word -> IO ()) -> IO (Maybe (Compact a))
+compactImport :: SerializedCompact a -> (Ptr b -> Word -> IO ()) -> IO (Maybe (Compact a))
 
 -- what we would like is
 {-
@@ -180,3 +188,31 @@ compactImport (SerializedCompact ((Ptr firstAddr, W# firstSize):otherBlocks) (Pt
     go previous ((Ptr addr, W# size):rest) s =
       case compactAllocateBlockAt# addr size previous s of
         (# s', block #) -> go block rest s'
+
+sanityCheckByteStrings :: SerializedCompact a -> [ByteString.ByteString] -> Bool
+sanityCheckByteStrings (SerializedCompact scl _) bsl = go scl bsl
+  where
+    go [] [] = True
+    go (_:_) [] = False
+    go [] (_:_) = False
+    go ((_, size):scs) (bs:bss) =
+      fromIntegral size == ByteString.length bs && go scs bss
+
+compactImportByteStrings :: SerializedCompact a -> [ByteString.ByteString] ->
+                          IO (Maybe (Compact a))
+compactImportByteStrings serialized stringList =
+  -- sanity check stringList first - if we throw an exception later we leak
+  -- memory!
+  if not (sanityCheckByteStrings serialized stringList) then
+    return Nothing
+  else do
+    state <- newIORef stringList
+    let filler :: Ptr Word8 -> Word -> IO ()
+        filler to size = do
+          -- this pattern match will never fail
+          (next:rest) <- readIORef state
+          let (fp, off, len) = toForeignPtr next
+          withForeignPtr fp $ \from -> do
+            copyBytes to (from `plusPtr` off) (fromIntegral size)
+          writeIORef state rest
+    compactImport serialized filler

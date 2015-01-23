@@ -40,6 +40,7 @@ library
   build-depends: base       >= 4.8.0 && < 4.9
   build-depends: deepseq    >= 1.4
   build-depends: transformers >= 0.4.2
+  build-depends: bytestring >= 0.10.6.0
   ghc-options: -Wall
 
   exposed-modules: Data.Compact
