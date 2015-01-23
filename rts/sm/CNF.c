@@ -73,8 +73,7 @@ compactAllocateBlock(Capability *cap, StgWord aligned_size, rtsBool linkGenerati
     self->self = self;
     self->next = NULL;
 
-    if (linkGeneration)
-        initBdescr(block, g0, g0);
+    initBdescr(block, g0, g0);
     for ( ; n_blocks > 0; block++, n_blocks--)
         block->flags = BF_COMPACT;
 
@@ -632,7 +631,7 @@ compactContains (StgCompactNFData *str, StgPtr what)
 
 #ifdef USE_STRIPED_ALLOCATOR
 static StgCompactNFDataBlock *
-compactDoAllocateBlockAt(Capability *cap, void *addr, StgWord aligned_size, rtsBool linkGeneration)
+compactDoAllocateBlockAt(Capability *cap, void *addr, StgWord aligned_size)
 {
     StgCompactNFDataBlock *self;
     bdescr *block;
@@ -665,9 +664,23 @@ compactDoAllocateBlockAt(Capability *cap, void *addr, StgWord aligned_size, rtsB
         // and we'll do a pointer adjustment pass later
         block = allocGroupInChunk(mblock_address_get_chunk(addr), n_blocks);
     }
-
-    if (linkGeneration)
-        dbl_link_onto(block, &g0->compact_objects);
+    // We do not link the new object into the generation ever
+    // - we cannot let the GC know about this object until we're done
+    // importing it and we have fixed up all info tables and stuff
+    //
+    // but we do update n_compact_blocks, otherwise memInventory()
+    // in Sanity will think we have a memory leak, because it compares
+    // the blocks he knows about with the blocks obtained by the
+    // block allocator
+    // (if by chance a memory leak does happen due to a bug somewhere
+    // else, memInventory will also report that all compact blocks
+    // associated with this compact are leaked - but they are not really,
+    // we have a pointer to them and we're not losing track of it, it's
+    // just we can't use the GC until we're done with the import)
+    //
+    // (That btw means that the high level import code must be careful
+    // not to lose the pointer, so don't use the primops directly
+    // unless you know what you're doing!)
     g0->n_compact_blocks += block->blocks;
     RELEASE_SM_LOCK;
 
@@ -679,8 +692,9 @@ compactDoAllocateBlockAt(Capability *cap, void *addr, StgWord aligned_size, rtsB
     self->self = self;
     self->next = NULL;
 
-    if (linkGeneration)
-        initBdescr(block, g0, g0);
+    // Init bdescr unconditionally, it doesn't harm to do so for
+    // later blocks anyway
+    initBdescr(block, g0, g0);
     for ( ; n_blocks > 0; block++, n_blocks--)
         block->flags = BF_COMPACT;
 
@@ -721,15 +735,14 @@ compactAllocateBlockAt(Capability            *cap,
 #ifdef USE_STRIPED_ALLOCATOR
     // Sanity check the address before making bogus calls to the
     // block allocator
-    if (can_alloc_group_at(addr, aligned_size))
-        block = compactDoAllocateBlockAt(cap, addr, aligned_size,
-                                         previous == NULL);
-    else
-        block = compactAllocateBlock(cap, aligned_size,
-                                     previous == NULL);
+    if (can_alloc_group_at(addr, aligned_size)) {
+        block = compactDoAllocateBlockAt(cap, addr, aligned_size);
+    } else {
+        // See above for why this is rtsFalse and not "previous == NULL"
+        block = compactAllocateBlock(cap, aligned_size, rtsFalse);
+    }
 #else
-    block = compactAllocateBlock(cap, aligned_size,
-                                 previous == NULL);
+    block = compactAllocateBlock(cap, aligned_size, rtsFalse);
 #endif
 
     if ((P_)block != addr && previous != NULL)
@@ -737,12 +750,6 @@ compactAllocateBlockAt(Capability            *cap,
 
     bd = Bdescr((P_)block);
     bd->free = (P_)((W_)bd->free + size);
-
-    // Even though the caller will soon fill block with the original
-    // contents, set block->next to NULL
-    // This way, if we are GCed before the caller has time to call us again
-    // we won't see a dangling pointer
-    block->next = NULL;
 
     return block;
 }
@@ -903,10 +910,14 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
     str->last = last;
 }
 
-StgWord
-compactFixupPointers(StgCompactNFData *str)
+StgPtr
+compactFixupPointers(StgCompactNFData *str,
+                     StgClosure       *root)
 {
     StgCompactNFDataBlock *block;
+    bdescr *bd;
+    rtsBool ok;
+    StgClosure **proot;
 
     // We don't fixup info tables, just sanity check the one for
     // Compact#
@@ -914,13 +925,29 @@ compactFixupPointers(StgCompactNFData *str)
 
     block = (StgCompactNFDataBlock*)((W_)str - sizeof(StgCompactNFDataBlock));
 
-    // Fast path
-    if (!any_needs_fixup(block))
-        return 1;
+    // I am PROOT!
+    proot = &root;
 
-    if (!fixup_loop(str, block))
-        return 0;
+    // Check for fast path
+    if (any_needs_fixup(block)) {
+        ok = fixup_loop(str, block);
+        if (ok)
+            ok = fixup_one_pointer(str, proot);
+        if (!ok)
+            *proot = NULL;
 
-    fixup_late(str, block);
-    return 1;
+        // Do the late fixup even if we did not fixup all
+        // internal pointers, we need that for GC and Sanity
+        fixup_late(str, block);
+    }
+
+    // Now we're ready to let the GC, Sanity, the profiler
+    // etc. know about this object
+    bd = Bdescr((P_)block);
+
+    ACQUIRE_SM_LOCK;
+    dbl_link_onto(bd, &g0->compact_objects);
+    RELEASE_SM_LOCK;
+
+    return (StgPtr)*proot;
 }

@@ -1910,9 +1910,7 @@ stg_compactNewzh ( W_ size )
 stg_compactAppendzh ( P_ str, P_ val , W_ share)
 {
     P_ root;
-    /* ptr hint because root after all is a GC pointer, even if we represent it
-       as a Addr# */
-    ("ptr" root) = ccall compactAppend(str "ptr", val "ptr", share);
+     ("ptr" root) = ccall compactAppend(str "ptr", val "ptr", share);
     return (root);
 }
 
@@ -1982,6 +1980,34 @@ stg_compactGetNextBlockzh ( P_ str, W_ block )
     ASSERT (size <= TO_W_(bdescr_blocks(bd)) * BLOCK_SIZE);
 
     return (next_block, size);
+}
+
+stg_compactAllocateBlockAtzh ( W_ block, W_ size, W_ previous )
+{
+    W_ actual_block;
+
+    ("ptr" actual_block) = ccall compactAllocateBlockAt(MyCapability(),
+                                                        block "ptr", size,
+                                                        previous "ptr");
+
+    return (actual_block);
+}
+
+stg_compactFixupPointerszh ( W_ first_block, W_ root )
+{
+    W_ str;
+    P_ gcstr;
+    W_ ok;
+
+    str = first_block - SIZEOF_StgCompactNFDataBlock::W_;
+    (ok) = ccall compactFixupPointers (str "ptr", root "ptr");
+
+    // Now we can let the GC know about str, because it was linked
+    // into the generation list and the book-keeping pointers are
+    // guaranteed to be valid
+    // (this is true even if the fixup phase failed)
+    gcstr = str;
+    return (gcstr, ok);
 }
 
 /* -----------------------------------------------------------------------------

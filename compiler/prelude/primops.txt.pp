@@ -2424,6 +2424,18 @@ primop  CompactGetNextBlockOp "compactGetNextBlock#" GenPrimOp
    with
    out_of_line      = True
 
+primop  CompactAllocateBlockAtOp "compactAllocateBlockAt#" GenPrimOp
+   Addr# -> Word# -> Addr# -> State# RealWorld -> (# State# RealWorld, Addr# #)
+   with
+   has_side_effects = True
+   out_of_line      = True
+
+primop  CompactFixupPointersOp "compactFixupPointers#" GenPrimOp
+   Addr# -> Addr# -> State# RealWorld -> (# State# RealWorld, Compact#, Addr# #)
+   with
+   has_side_effects = True
+   out_of_line      = True
+
 ------------------------------------------------------------------------
 section "Unsafe pointer equality"
 --  (#1 Bad Guy: Alistair Reid :)

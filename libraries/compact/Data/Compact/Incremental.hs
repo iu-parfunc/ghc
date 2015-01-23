@@ -42,7 +42,9 @@ module Data.Compact.Incremental (
   compact,
   defaultCompactNFData,
 
+  SerializedCompact(..),
   withCompactPtrs,
+  compactImport,
   ) where
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
@@ -62,7 +64,9 @@ import Data.Compact.Imp(Compact(..),
                         compactResize,
                         compactAppendEvaledInternal,
                         maybeMakeCompact,
-                        withCompactPtrs)
+                        SerializedCompact(..),
+                        withCompactPtrs,
+                        compactImport)
 
 import Control.DeepSeq (NFData, force)
 

@@ -35,7 +35,8 @@ StgCompactNFDataBlock *compactAllocateBlockAt(Capability            *cap,
                                               StgPtr                 addr,
                                               StgWord                size,
                                               StgCompactNFDataBlock *previous);
-StgWord                compactFixupPointers  (StgCompactNFData      *str);
+StgPtr                 compactFixupPointers  (StgCompactNFData      *str,
+                                              StgClosure            *root);
 
 INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure);
 INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure)
