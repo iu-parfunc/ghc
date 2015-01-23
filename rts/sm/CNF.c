@@ -301,13 +301,6 @@ simple_evacuate (StgCompactNFData *str, HashTable *hash, StgClosure **p)
     tag = GET_CLOSURE_TAG(from);
     from = UNTAG_CLOSURE(from);
 
-    // Do nothing on static closures, just reference them.
-    // They would not be GCed anyway. And in practice we should
-    // not see them (because they are THUNKs or FUNs), but
-    // we could see CHARLIKE and INTLIKE
-    if (!HEAP_ALLOCED(from))
-        return rtsTrue;
-
     // If the object referenced is already in this compact
     // (for example by reappending an object that was obtained
     // by compactGetRoot) then do nothing
@@ -334,6 +327,7 @@ simple_evacuate (StgCompactNFData *str, HashTable *hash, StgClosure **p)
         return simple_evacuate(str, hash, p);
 
     case IND:
+    case IND_STATIC:
         // follow chains of indirections, don't evacuate them
         from = ((StgInd*)from)->indirectee;
         *p = from;
@@ -376,6 +370,8 @@ simple_scavenge_block (StgCompactNFData *str, StgCompactNFDataBlock *block, Hash
 
         case CONSTR:
         case PRIM:
+        case CONSTR_NOCAF_STATIC:
+        case CONSTR_STATIC:
         {
             StgPtr end;
 
@@ -390,9 +386,9 @@ simple_scavenge_block (StgCompactNFData *str, StgCompactNFDataBlock *block, Hash
 
         case IND:
         case BLACKHOLE:
-            if (!simple_evacuate(str, hash, &((StgInd*)p)->indirectee))
-                return rtsFalse;
-            p += sizeofW(StgInd);
+        case IND_STATIC:
+            // They get shortcircuited by simple_evaluate()
+            barf("IND/BLACKHOLE in Compact");
             break;
 
         default:
@@ -438,6 +434,8 @@ objectIsWHNFData (StgClosure *what)
     case CONSTR_2_0:
     case CONSTR_1_1:
     case CONSTR_0_2:
+    case CONSTR_STATIC:
+    case CONSTR_NOCAF_STATIC:
         return rtsTrue;
 
     case IND:
@@ -461,14 +459,6 @@ compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
     StgCompactNFDataBlock *initial_nursery;
     bdescr *nursery_bd;
     StgCompactNFDataBlock *evaced_block;
-
-    // If what is not heap alloced (it is a static CONSTR)
-    // we will do nothing in simple_evacuate. But let's not
-    // bother at all to set up the allocation system
-    // (We ignore the tag because it doesn't make a difference as
-    // far as heap_alloced is concerned)
-    if (!HEAP_ALLOCED(what))
-        return (StgPtr)what;
 
     ASSERT(objectIsWHNFData(UNTAG_CLOSURE(what)));
 
@@ -535,13 +525,14 @@ maybe_adjust_one_indirection(StgCompactNFData *str, StgClosure **p)
         break;
 
     case IND:
+    case IND_STATIC:
         q = ((StgInd*)q)->indirectee;
         *p = q;
         maybe_adjust_one_indirection(str, p);
         break;
 
     default:
-        ASSERT (!HEAP_ALLOCED(q) || object_in_compact(str, q));
+        ASSERT (object_in_compact(str, q));
         break;
     }
 }
@@ -569,6 +560,8 @@ adjust_indirections(StgCompactNFData *str, StgClosure *what)
 
     case CONSTR:
     case PRIM:
+    case CONSTR_STATIC:
+    case CONSTR_NOCAF_STATIC:
     {
         nat i;
 
@@ -588,10 +581,6 @@ compactAppendOne (StgCompactNFData *str, StgClosure *what)
 {
     StgClosure *tagged_root;
 
-    // See above for this check
-    if (!HEAP_ALLOCED(what))
-        return (StgPtr)what;
-
     ASSERT(objectIsWHNFData(UNTAG_CLOSURE(what)));
 
     tagged_root = what;
@@ -608,19 +597,14 @@ compactContains (StgCompactNFData *str, StgPtr what)
 {
     bdescr *bd;
 
-    // Static objects are considered to be in any compact
-    // because they do not need recursive evaluation or
-    // recursive copying when appended to a compact (which
-    // is how compactContains# is used by the API layer)
-
-    // This check is also the reason why this needs to be
+    // This check is the reason why this needs to be
     // implemented in C instead of (possibly faster) Cmm
     //
     // (If the large address space patch goes in, OTOH,
     // we can write a Cmm version of HEAP_ALLOCED() and move
     // all this code to PrimOps.cmm - for x86_64 only)
     if (!HEAP_ALLOCED (what))
-        return 1;
+        return 0;
 
     // Note that we don't care about tags, they are eaten
     // away by the Bdescr operation anyway
@@ -806,9 +790,6 @@ fixup_one_pointer(StgCompactNFData *str, StgClosure **p)
     tag = GET_CLOSURE_TAG(q);
     q = UNTAG_CLOSURE(q);
 
-    if (!HEAP_ALLOCED(q))
-        return rtsTrue;
-
     block = find_pointer(str, q);
     if (block == NULL)
         return rtsFalse;
@@ -854,6 +835,8 @@ fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
 
         case CONSTR:
         case PRIM:
+        case CONSTR_STATIC:
+        case CONSTR_NOCAF_STATIC:
         {
             StgPtr end;
 
