@@ -52,6 +52,7 @@ import GHC.Prim (Compact#,
                  compactGetNextBlock#,
                  compactAllocateBlockAt#,
                  compactFixupPointers#,
+                 touch#,
                  Addr#,
                  nullAddr#,
                  eqAddr#,
@@ -120,11 +121,12 @@ mkBlockList buffer = go (compactGetFirstBlock# buffer)
     mkBlock :: Addr# -> Word# -> (Ptr a, Word)
     mkBlock block size = (Ptr block, W# size)
 
-withCompactPtrs :: Compact a -> (SerializedCompact a -> c) -> c
-withCompactPtrs (Compact buffer rootAddr) func =
+withCompactPtrs :: Compact a -> (SerializedCompact a -> IO c) -> IO c
+withCompactPtrs c@(Compact buffer rootAddr) func = do
   let serialized = SerializedCompact (mkBlockList buffer) (Ptr rootAddr)
-  in
-   func serialized
+  r <- func serialized
+  IO (\s -> case touch# c s of
+         s' -> (# s', r #) )
 
 fixupPointers :: Addr# -> Addr# -> State# RealWorld -> (# State# RealWorld, Maybe (Compact a) #)
 fixupPointers firstBlock rootAddr s =
