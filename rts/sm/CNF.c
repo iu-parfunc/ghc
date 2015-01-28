@@ -903,36 +903,67 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
     str->last = last;
 }
 
+static StgClosure *
+maybe_fixup_internal_pointers (StgCompactNFDataBlock *block,
+                               StgCompactNFData      *str,
+                               StgClosure            *root)
+{
+    rtsBool ok;
+    StgClosure **proot;
+
+    // Check for fast path
+    if (!any_needs_fixup(block))
+        return root;
+
+    debugBelch("Compact imported at the wrong address, will fix up"
+               " internal pointers\n");
+
+    // I am PROOT!
+    proot = &root;
+
+    ok = fixup_loop(str, block);
+    if (ok)
+        ok = fixup_one_pointer(str, proot);
+    if (!ok)
+        *proot = NULL;
+
+    // Do the late fixup even if we did not fixup all
+    // internal pointers, we need that for GC and Sanity
+    fixup_late(str, block);
+
+    return *proot;
+}
+
+static void
+maybe_fixup_info_tables (StgCompactNFDataBlock *block,
+                         StgCompactNFData      *str)
+{
+    const StgWord8 *build_id;
+
+    build_id = getBinaryBuildId();
+    if (memcmp(str->build_id, build_id, BUILD_ID_SIZE) == 0)
+        return;
+
+    // Slow path: reconstruct info tables
+    debugBelch("Binary versions do not match, slow path to adjust"
+               " info tables\n");
+
+    // FIXME
+    (void)block;
+}
+
 StgPtr
 compactFixupPointers(StgCompactNFData *str,
                      StgClosure       *root)
 {
     StgCompactNFDataBlock *block;
     bdescr *bd;
-    rtsBool ok;
-    StgClosure **proot;
-
-    // We don't fixup info tables, just sanity check the one for
-    // Compact#
-    ASSERT(GET_INFO((StgClosure*)str) == &stg_COMPACT_NFDATA_info);
 
     block = (StgCompactNFDataBlock*)((W_)str - sizeof(StgCompactNFDataBlock));
 
-    // I am PROOT!
-    proot = &root;
+    root = maybe_fixup_internal_pointers(block, str, root);
 
-    // Check for fast path
-    if (any_needs_fixup(block)) {
-        ok = fixup_loop(str, block);
-        if (ok)
-            ok = fixup_one_pointer(str, proot);
-        if (!ok)
-            *proot = NULL;
-
-        // Do the late fixup even if we did not fixup all
-        // internal pointers, we need that for GC and Sanity
-        fixup_late(str, block);
-    }
+    maybe_fixup_info_tables(block, str);
 
     // Now we're ready to let the GC, Sanity, the profiler
     // etc. know about this object
@@ -942,5 +973,5 @@ compactFixupPointers(StgCompactNFData *str,
     dbl_link_onto(bd, &g0->compact_objects);
     RELEASE_SM_LOCK;
 
-    return (StgPtr)*proot;
+    return (StgPtr)root;
 }
