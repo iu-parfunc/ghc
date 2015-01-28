@@ -451,6 +451,7 @@ typedef struct StgCompactNFData_ {
                                     // when appending
     StgCompactNFDataBlock *last; // the last block of the chain (to known
                                  // where to append new blocks for resize)
+    StgWord8               build_id[16]; // A MD5 sum of all loaded shared libraries
 } StgCompactNFData;
 
 
