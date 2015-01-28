@@ -7,6 +7,7 @@
 typedef HsWord32 word32;
 typedef HsWord8  byte;
 
+// Keep a copy of the structure here, for configure to compute the size
 struct MD5Context {
 	word32 buf[4];
 	word32 bytes[2];
