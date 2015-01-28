@@ -22,6 +22,7 @@
 #include "CNF.h"
 #include "Hash.h"
 #include "HeapAlloc.h"
+#include "BuildId.h"
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -139,6 +140,7 @@ compactNew (Capability *cap, StgWord size)
     StgWord aligned_size;
     StgCompactNFDataBlock *block;
     StgCompactNFData *self;
+    const StgWord8 *build_id;
     bdescr *bd;
 
     aligned_size = BLOCK_ROUND_UP(size + sizeof(StgCompactNFDataBlock)
@@ -150,6 +152,10 @@ compactNew (Capability *cap, StgWord size)
     self->totalW = aligned_size / sizeof(StgWord);
     self->nursery = block;
     self->last = block;
+
+    build_id = getBinaryBuildId();
+    memcpy(self->build_id, build_id, BUILD_ID_SIZE);
+
     block->owner = self;
 
     bd = Bdescr((P_)block);
