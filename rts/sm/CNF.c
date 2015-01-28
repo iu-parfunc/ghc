@@ -290,8 +290,12 @@ copy_tag (StgCompactNFData *str, HashTable *hash, StgClosure **p, StgClosure *fr
 STATIC_INLINE rtsBool
 object_in_compact (StgCompactNFData *str, StgClosure *p)
 {
-    bdescr *bd = Bdescr((P_)p);
+    bdescr *bd;
 
+    if (!HEAP_ALLOCED(p))
+        return rtsFalse;
+
+    bd = Bdescr((P_)p);
     return (bd->flags & BF_COMPACT) != 0 &&
         objectGetCompact(p) == str;
 }
