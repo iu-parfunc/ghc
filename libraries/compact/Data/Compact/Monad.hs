@@ -40,31 +40,29 @@ import Control.Monad
 import Data.Compact.Incremental
 
 newtype CompactM b a = CompactM {
-  runCompactM :: Compact b -> IO (Maybe (Compact a)) }
+  runCompactM :: Compact b -> IO (Compact a) }
 
 instance Monad (CompactM b) where
   return v = CompactM $ \str -> compactAppendOne str v
 
   m >>= f = CompactM $ \str -> do
-    mstr' <- runCompactM m str
-    case mstr' of
-      Nothing -> return Nothing
-      Just str' -> let v = compactGetRoot str'
-                       -- you may think that this is str', because
-                       -- CompactM behaves like a state monad, where
-                       -- the compact is threaded down
-                       -- but if you do so you get type errors because
-                       -- runCompactM here wants a Compact b, where b
-                       -- is rigidly bound by the instance declaration,
-                       -- while str' is a Compact a, where a is rigidly
-                       -- bound by the signature of >>=
-                       -- (this is why state monads don't let you change
-                       -- the type of the state!)
-                       -- but in this specific case it doesn't matter,
-                       -- because both str and str' share the underlying
-                       -- buffer, which is what we need to thread the
-                       -- state down for
-                   in v `seq` runCompactM (f v) str
+    str' <- runCompactM m str
+    let v = compactGetRoot str'
+            -- you may think that this is str', because
+            -- CompactM behaves like a state monad, where
+            -- the compact is threaded down
+            -- but if you do so you get type errors because
+            -- runCompactM here wants a Compact b, where b
+            -- is rigidly bound by the instance declaration,
+            -- while str' is a Compact a, where a is rigidly
+            -- bound by the signature of >>=
+            -- (this is why state monads don't let you change
+            -- the type of the state!)
+            -- but in this specific case it doesn't matter,
+            -- because both str and str' share the underlying
+            -- buffer, which is what we need to thread the
+            -- state down for
+    v `seq` runCompactM (f v) str
 
 instance Applicative (CompactM b) where
   pure = return

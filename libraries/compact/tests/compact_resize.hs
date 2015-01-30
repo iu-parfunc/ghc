@@ -30,19 +30,11 @@ main = do
   -- if the optimizer is off)
   let v1 = take 2 [1..] :: [Int]
       v2 = replicate 512 7 :: [Int]
-  maybeStr1 <- compactNew 1 v1
-  case maybeStr1 of
-    Nothing -> assertFail "failed to create the compact"
-    Just str1 -> do
-      maybeStr2 <- compactAppend str1 v2
-      case maybeStr2 of
-        Just _ -> assertFail "appended the compact without space"
-        Nothing -> do
-          compactResize str1 (2560*8)
-          maybeStr3 <- compactAppend str1 v2
-          case maybeStr3 of
-            Nothing -> assertFail "failed to append to the resized compact"
-            Just str3 -> do
-              assertEquals v1 (compactGetRoot str1)
-              assertEquals v2 (compactGetRoot str3)
+  str1 <- compactNew 1 v1
+
+  compactResize str1 (2560*8)
+  str2 <- compactAppend str1 v2
+
+  assertEquals v1 (compactGetRoot str1)
+  assertEquals v2 (compactGetRoot str2)
 

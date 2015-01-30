@@ -36,20 +36,12 @@ instance NFData Tree where
 test x = do
   let a = Node Nil x b
       b = Node a Nil Nil
-  maybeStr <- compactNew 4096 a
-  case maybeStr of
-    Nothing -> assertFail "failed to create the compact"
-    Just str -> do
-      -- check the value in the compact
-      assertEquals a (compactGetRoot str)
-      performMajorGC
-      -- check again the value in the compact
-      assertEquals a (compactGetRoot str)
-  -- now try with compactNewNoShare (should fail)
-  maybeStr2 <- compactNewNoShare 4096 a
-  case maybeStr2 of
-    Nothing -> return ()
-    Just str2 -> assertFail "unexpectedly created a compact with a loop"
+  str <- compactNew 4096 a
 
+  -- check the value in the compact
+  assertEquals a (compactGetRoot str)
+  performMajorGC
+  -- check again the value in the compact
+  assertEquals a (compactGetRoot str)
 
 main = test Nil
