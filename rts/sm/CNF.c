@@ -125,6 +125,7 @@ compactNew (Capability *cap, StgWord size)
     self = (StgCompactNFData*)((W_)block + sizeof(StgCompactNFDataBlock));
     SET_INFO((StgClosure*)self, &stg_COMPACT_NFDATA_info);
     self->totalW = aligned_size / sizeof(StgWord);
+    self->autoBlockW = aligned_size / sizeof(StgWord);
     self->nursery = block;
     self->last = block;
 
@@ -140,25 +141,36 @@ compactNew (Capability *cap, StgWord size)
     return self;
 }
 
-void
-compactResize (Capability *cap, StgCompactNFData *str, StgWord new_size)
+static void
+compactAppendBlock (Capability *cap, StgCompactNFData *str, StgWord aligned_size)
 {
-    StgWord aligned_size;
     StgCompactNFDataBlock *block;
     bdescr *bd;
 
-    aligned_size = BLOCK_ROUND_UP(new_size + sizeof(StgCompactNFDataBlock));
     block = compactAllocateBlock(cap, aligned_size, rtsFalse);
-
-    str->totalW += aligned_size / sizeof(StgWord);
     block->owner = str;
 
     str->last->next = block;
     str->last = block;
+    if (str->nursery == NULL)
+        str->nursery = block;
 
     bd = Bdescr((P_)block);
     bd->free = (StgPtr)((W_)block + sizeof(StgCompactNFDataBlock));
     ASSERT (bd->free == (StgPtr)block + sizeofW(StgCompactNFDataBlock));
+}
+
+void
+compactResize (Capability *cap, StgCompactNFData *str, StgWord new_size)
+{
+    StgWord aligned_size;
+
+    aligned_size = BLOCK_ROUND_UP(new_size + sizeof(StgCompactNFDataBlock));
+
+    str->totalW += aligned_size / sizeof(StgWord);
+    str->autoBlockW = aligned_size / sizeof(StgWord);
+
+    compactAppendBlock(cap, str, aligned_size);
 }
 
 /* This is a simple reimplementation of the copying GC.
@@ -218,8 +230,6 @@ allocate_in_compact (StgCompactNFDataBlock *block, StgWord sizeW, StgPtr *at)
     StgPtr top;
     StgPtr free;
 
-    // There might be a better way to do this
-
     bd = Bdescr((StgPtr)block);
     top = bd->start + BLOCK_SIZE_W * bd->blocks;
     if (bd->free + sizeW > top)
@@ -233,44 +243,56 @@ allocate_in_compact (StgCompactNFDataBlock *block, StgWord sizeW, StgPtr *at)
 }
 
 static rtsBool
-allocate_loop (StgCompactNFData *str, StgWord sizeW, StgPtr *at)
+block_is_full (StgCompactNFDataBlock *block)
 {
+    bdescr *bd;
+    StgPtr top;
+    StgWord sizeW;
+
+    bd = Bdescr((StgPtr)block);
+    top = bd->start + BLOCK_SIZE_W * bd->blocks;
+
+    // We consider a block full if we could not fit
+    // an entire closure with 1 payload item
+    sizeW = sizeofW(StgHeader) + 1;
+    return (bd->free + sizeW > top);
+}
+
+static void
+allocate_loop (Capability *cap, StgCompactNFData *str, StgWord sizeW, StgPtr *at)
+{
+    rtsBool ok;
+
     while (str->nursery != NULL) {
         if (allocate_in_compact(str->nursery, sizeW, at))
-            return rtsTrue;
+            return;
 
-        // There is no space in this block, treat it as fully occupied
-        // and move to the next in the chain
-        // This is slightly incorrect in that we could fit a smaller
-        // closure in the free space still in the nursery, but to be
-        // able to revert failed appends we maintain the invariant that
-        // only the nursery is partially occupied, everything before
-        // it is full and everything after is empty (so the revert code
-        // restores the nursery to the values it had at the beginning
-        // and empties all blocks following it)
-
-        // this is not threadsafe, because a thread failing
-        // to append can revert the concurrent append of a second thread
-        // (which would lead to corruption because the second thread
-        // thinks it has a good pointer)
-        // the only correct way to fix this (without dealing with holes
-        // in the blocks) is to lock the entire structure around appends,
-        // which is undesirable
-        str->nursery = str->nursery->next;
+        if (block_is_full (str->nursery))
+            str->nursery = str->nursery->next;
     }
 
-    return rtsFalse;
+    compactAppendBlock(cap, str, str->autoBlockW);
+    ASSERT (str->nursery != NULL);
+    ok = allocate_in_compact(str->nursery, sizeW, at);
+#if DEBUG
+    ASSERT (ok);
+#else
+    // tell gcc that ok will be true at this point - this allows GCC
+    // to infer that *at was properly initialized
+    if (!ok)
+        __builtin_unreachable();
+#endif
 }
-static rtsBool
-copy_tag (StgCompactNFData *str, HashTable *hash, StgClosure **p, StgClosure *from, StgWord tag)
+
+static void
+copy_tag (Capability *cap, StgCompactNFData *str, HashTable *hash, StgClosure **p, StgClosure *from, StgWord tag)
 {
     StgPtr to;
     StgWord sizeW;
 
     sizeW = closure_sizeW(from);
 
-    if (!allocate_loop(str, sizeW, &to))
-        return rtsFalse;
+    allocate_loop(cap, str, sizeW, &to);
 
     // unroll memcpy for small sizes because we can
     // benefit of known alignment
@@ -283,8 +305,6 @@ copy_tag (StgCompactNFData *str, HashTable *hash, StgClosure **p, StgClosure *fr
     if (hash != NULL)
         insertHashTable(hash, (StgWord)from, to);
     *p = TAG_CLOSURE(tag, (StgClosure*)to);
-
-    return rtsTrue;
 }
 
 STATIC_INLINE rtsBool
@@ -301,7 +321,7 @@ object_in_compact (StgCompactNFData *str, StgClosure *p)
 }
 
 static rtsBool
-simple_evacuate (StgCompactNFData *str, HashTable *hash, StgClosure **p)
+simple_evacuate (Capability *cap, StgCompactNFData *str, HashTable *hash, StgClosure **p)
 {
     StgWord tag;
     StgClosure *from;
@@ -334,7 +354,7 @@ simple_evacuate (StgCompactNFData *str, HashTable *hash, StgClosure **p)
         if (GET_CLOSURE_TAG(from) == 0)
             return rtsFalse;
         *p = from;
-        return simple_evacuate(str, hash, p);
+        return simple_evacuate(cap, str, hash, p);
 
     case IND:
     case IND_STATIC:
@@ -343,15 +363,16 @@ simple_evacuate (StgCompactNFData *str, HashTable *hash, StgClosure **p)
         *p = from;
         // Evac.c uses a goto, but let's rely on a smart compiler
         // and get readable code instead
-        return simple_evacuate(str, hash, p);
+        return simple_evacuate(cap, str, hash, p);
 
     default:
-        return copy_tag(str, hash, p, from, tag);
+        copy_tag(cap, str, hash, p, from, tag);
+        return rtsTrue;
     }
 }
 
 static rtsBool
-simple_scavenge_block (StgCompactNFData *str, StgCompactNFDataBlock *block, HashTable *hash, StgPtr p)
+simple_scavenge_block (Capability *cap, StgCompactNFData *str, StgCompactNFDataBlock *block, HashTable *hash, StgPtr p)
 {
     StgInfoTable *info;
     bdescr *bd = Bdescr((P_)block);
@@ -362,17 +383,17 @@ simple_scavenge_block (StgCompactNFData *str, StgCompactNFDataBlock *block, Hash
 
         switch (info->type) {
         case CONSTR_1_0:
-            if (!simple_evacuate(str, hash, &((StgClosure*)p)->payload[0]))
+            if (!simple_evacuate(cap, str, hash, &((StgClosure*)p)->payload[0]))
                 return rtsFalse;
         case CONSTR_0_1:
             p += sizeofW(StgClosure) + 1;
             break;
 
         case CONSTR_2_0:
-            if (!simple_evacuate(str, hash, &((StgClosure*)p)->payload[1]))
+            if (!simple_evacuate(cap, str, hash, &((StgClosure*)p)->payload[1]))
                 return rtsFalse;
         case CONSTR_1_1:
-            if (!simple_evacuate(str, hash, &((StgClosure*)p)->payload[0]))
+            if (!simple_evacuate(cap, str, hash, &((StgClosure*)p)->payload[0]))
                 return rtsFalse;
         case CONSTR_0_2:
             p += sizeofW(StgClosure) + 2;
@@ -387,7 +408,7 @@ simple_scavenge_block (StgCompactNFData *str, StgCompactNFDataBlock *block, Hash
 
             end = (P_)((StgClosure *)p)->payload + info->layout.payload.ptrs;
             for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
-                if (!simple_evacuate(str, hash, (StgClosure **)p))
+                if (!simple_evacuate(cap, str, hash, (StgClosure **)p))
                     return rtsFalse;
             }
             p += info->layout.payload.nptrs;
@@ -411,10 +432,10 @@ simple_scavenge_block (StgCompactNFData *str, StgCompactNFDataBlock *block, Hash
 }
 
 static rtsBool
-scavenge_loop (StgCompactNFData *str, StgCompactNFDataBlock *first_block, HashTable *hash, StgPtr p)
+scavenge_loop (Capability *cap, StgCompactNFData *str, StgCompactNFDataBlock *first_block, HashTable *hash, StgPtr p)
 {
     // Scavenge the first block
-    if (!simple_scavenge_block(str, first_block, hash, p))
+    if (!simple_scavenge_block(cap, str, first_block, hash, p))
         return rtsFalse;
 
     // Now, if the nursery pointer did not change, we're done,
@@ -425,7 +446,7 @@ scavenge_loop (StgCompactNFData *str, StgCompactNFDataBlock *first_block, HashTa
     // because that is only in the absolute first block in the chain
     while (first_block != str->nursery) {
         first_block = first_block->next;
-        if (!simple_scavenge_block(str, first_block, hash,
+        if (!simple_scavenge_block(cap, str, first_block, hash,
                                    (P_)first_block + sizeof(StgCompactNFDataBlock)))
             return rtsFalse;
     }
@@ -459,7 +480,7 @@ objectIsWHNFData (StgClosure *what)
 #endif
 
 StgPtr
-compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
+compactAppend (Capability *cap, StgCompactNFData *str, StgClosure *what, StgWord share)
 {
     rtsBool ok;
     StgClosure *root;
@@ -477,7 +498,7 @@ compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
     nursery_bd = Bdescr((P_)initial_nursery);
     start = nursery_bd->free;
     tagged_root = what;
-    if (!simple_evacuate(str, NULL, &tagged_root))
+    if (!simple_evacuate(cap, str, NULL, &tagged_root))
         return NULL;
 
     root = UNTAG_CLOSURE(tagged_root);
@@ -492,7 +513,7 @@ compactAppend (StgCompactNFData *str, StgClosure *what, StgWord share)
     } else
         hash = NULL;
 
-    ok = scavenge_loop(str, evaced_block, hash, (P_)root);
+    ok = scavenge_loop(cap, str, evaced_block, hash, (P_)root);
 
     if (share)
         freeHashTable(hash, NULL);
@@ -587,14 +608,14 @@ adjust_indirections(StgCompactNFData *str, StgClosure *what)
 }
 
 StgPtr
-compactAppendOne (StgCompactNFData *str, StgClosure *what)
+compactAppendOne (Capability *cap, StgCompactNFData *str, StgClosure *what)
 {
     StgClosure *tagged_root;
 
     ASSERT(objectIsWHNFData(UNTAG_CLOSURE(what)));
 
     tagged_root = what;
-    if (!simple_evacuate(str, NULL, &tagged_root))
+    if (!simple_evacuate(cap, str, NULL, &tagged_root))
         return NULL;
 
     adjust_indirections(str, UNTAG_CLOSURE(tagged_root));
