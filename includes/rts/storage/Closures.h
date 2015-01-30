@@ -447,6 +447,7 @@ typedef struct StgCompactNFData_ {
                                    // (we don't even need fwding pointers
                                    // because it's a large object)
     StgWord                totalW; // for stats/profiling only
+    StgWord                autoBlockW; // size of automatically appended blocks
     StgCompactNFDataBlock *nursery; // where to (try to) allocate from
                                     // when appending
     StgCompactNFDataBlock *last; // the last block of the chain (to known

@@ -18,10 +18,12 @@
 
 StgCompactNFData *compactNew   (Capability      *cap,
                                 StgWord          size);
-StgPtr            compactAppend(StgCompactNFData *str,
+StgPtr            compactAppend(Capability       *cap,
+                                StgCompactNFData *str,
                                 StgClosure       *what,
                                 StgWord           share);
-StgPtr            compactAppendOne(StgCompactNFData *str,
+StgPtr            compactAppendOne(Capability       *cap,
+                                   StgCompactNFData *str,
                                    StgClosure       *what);
 void              compactResize(Capability       *cap,
                                 StgCompactNFData *str,
