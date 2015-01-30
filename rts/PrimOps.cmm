@@ -1910,14 +1910,14 @@ stg_compactNewzh ( W_ size )
 stg_compactAppendzh ( P_ str, P_ val , W_ share)
 {
     P_ root;
-     ("ptr" root) = ccall compactAppend(str "ptr", val "ptr", share);
+     ("ptr" root) = ccall compactAppend(MyCapability() "ptr", str "ptr", val "ptr", share);
     return (root);
 }
 
 stg_compactAppendOnezh ( P_ str, P_ val )
 {
     P_ root;
-    ("ptr" root) = ccall compactAppendOne(str "ptr", val "ptr");
+    ("ptr" root) = ccall compactAppendOne(MyCapability() "ptr", str "ptr", val "ptr");
     return (root);
 }
 
