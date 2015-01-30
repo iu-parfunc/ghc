@@ -65,28 +65,28 @@ import Data.Compact.Imp(Compact(..),
                         compactImportByteStrings)
 
 compactAppendInternal :: NFData a => Compact# -> a -> Int# -> State# RealWorld ->
-                        (# State# RealWorld, Maybe (Compact a) #)
+                        (# State# RealWorld, Compact a #)
 compactAppendInternal buffer root share s =
   case force root of
     !eval -> compactAppendEvaledInternal buffer eval share s
 
-compactAppendInternalIO :: NFData a => Int# -> Compact b -> a -> IO (Maybe (Compact a))
+compactAppendInternalIO :: NFData a => Int# -> Compact b -> a -> IO (Compact a)
 compactAppendInternalIO share str root =
   IO (\s -> compactAppendInternal (compactGetBuffer str) root share s)
 
-compactAppend :: NFData a => Compact b -> a -> IO (Maybe (Compact a))
+compactAppend :: NFData a => Compact b -> a -> IO (Compact a)
 compactAppend = compactAppendInternalIO 1#
 
-compactAppendNoShare :: NFData a => Compact b -> a -> IO (Maybe (Compact a))
+compactAppendNoShare :: NFData a => Compact b -> a -> IO (Compact a)
 compactAppendNoShare = compactAppendInternalIO 0#
 
-compactNewInternal :: NFData a => Int# -> Word -> a -> IO (Maybe (Compact a))
+compactNewInternal :: NFData a => Int# -> Word -> a -> IO (Compact a)
 compactNewInternal share (W# size) root =
   IO (\s -> case compactNew# size s of
          (# s', buffer #) -> compactAppendInternal buffer root share s' )
 
-compactNew :: NFData a => Word -> a -> IO (Maybe (Compact a))
+compactNew :: NFData a => Word -> a -> IO (Compact a)
 compactNew = compactNewInternal 1#
 
-compactNewNoShare :: NFData a => Word -> a -> IO (Maybe (Compact a))
+compactNewNoShare :: NFData a => Word -> a -> IO (Compact a)
 compactNewNoShare = compactNewInternal 0#

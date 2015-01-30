@@ -17,19 +17,17 @@ assertEquals expected actual =
 test :: Int -> IO ()
 test x = do
   let val = ("hello", 1, x, 42, Just 42) :: (String, Int, Int, Integer, Maybe Int)
-  maybeStr <- compactNew 4096 val
-  case maybeStr of
-    Nothing -> assertFail "failed to create the compact"
-    Just str -> do
-      -- check that val is still good
-      assertEquals ("hello", 1, x, 42, Just 42) val
-      -- check the value in the compact
-      assertEquals ("hello", 1, x, 42, Just 42) (compactGetRoot str)
-      performMajorGC
-      -- check again val
-      assertEquals ("hello", 1, x, 42, Just 42) val
-      -- check again the value in the compact
-      assertEquals ("hello", 1, x, 42, Just 42) (compactGetRoot str)
+  str <- compactNew 4096 val
+
+  -- check that val is still good
+  assertEquals ("hello", 1, x, 42, Just 42) val
+  -- check the value in the compact
+  assertEquals ("hello", 1, x, 42, Just 42) (compactGetRoot str)
+  performMajorGC
+  -- check again val
+  assertEquals ("hello", 1, x, 42, Just 42) val
+  -- check again the value in the compact
+  assertEquals ("hello", 1, x, 42, Just 42) (compactGetRoot str)
 
 main = do
   -- just in case the compiler is smart and inlines test

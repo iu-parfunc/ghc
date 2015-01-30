@@ -16,27 +16,23 @@ assertEquals expected actual =
 
 main = do
   let val = ("hello", Just 42) :: (String, Maybe Int)
-  maybeStr <- compactNew 4096 val
-  case maybeStr of
-    Nothing -> assertFail "failed to create the compact"
-    Just str -> do
-      let val2 = ("world", 42) :: (String, Int)
-      maybeStr2 <- compactAppend str val2
-      case maybeStr2 of
-        Nothing -> assertFail "failed to append to the compact"
-        Just str2 -> do
-          -- check that values where not corrupted
-          assertEquals ("hello", Just 42) val
-          assertEquals ("world", 42) val2
-          -- check the values in the compact
-          assertEquals ("hello", Just 42) (compactGetRoot str)
-          assertEquals ("world", 42) (compactGetRoot str2)
+  str <- compactNew 4096 val
 
-          performMajorGC
+  let val2 = ("world", 42) :: (String, Int)
+  str2 <- compactAppend str val2
 
-          -- same checks again
-          assertEquals ("hello", Just 42) val
-          assertEquals ("world", 42) val2
-          -- check the values in the compact
-          assertEquals ("hello", Just 42) (compactGetRoot str)
-          assertEquals ("world", 42) (compactGetRoot str2)
+  -- check that values where not corrupted
+  assertEquals ("hello", Just 42) val
+  assertEquals ("world", 42) val2
+  -- check the values in the compact
+  assertEquals ("hello", Just 42) (compactGetRoot str)
+  assertEquals ("world", 42) (compactGetRoot str2)
+
+  performMajorGC
+
+  -- same checks again
+  assertEquals ("hello", Just 42) val
+  assertEquals ("world", 42) val2
+  -- check the values in the compact
+  assertEquals ("hello", Just 42) (compactGetRoot str)
+  assertEquals ("world", 42) (compactGetRoot str2)
