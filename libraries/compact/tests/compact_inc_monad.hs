@@ -9,9 +9,6 @@ import Data.Compact.Incremental
 import Data.Compact.Monad
 import Control.DeepSeq
 
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.Maybe
-
 assertFail :: String -> IO ()
 assertFail msg = throwIO $ AssertionFailed msg
 
@@ -21,7 +18,7 @@ assertEquals expected actual =
   else assertFail $ "expected " ++ (show expected)
        ++ ", got " ++ (show actual)
 
-makeCompact :: Compact () -> IO (Maybe (Compact (String, String, String, Int, Int)))
+makeCompact :: Compact () -> IO (Compact (String, String, String, Int, Int))
 makeCompact = runCompactM $ do
   !v1 <- compactPut "hello"
   !v2 <- compactPut "world"
@@ -35,18 +32,13 @@ makeCompact = runCompactM $ do
   return (v1, v2, v7', v3, v6')
 
 main = do
-  maybeStr <- compactNew 4096 ()
-  case maybeStr of
-    Nothing -> assertFail "failed to create the compact"
-    Just str -> do
-      maybeStr2 <- makeCompact str
-      case maybeStr2 of
-        Nothing -> assertFail "failed to append to the compact"
-        Just str2 -> do
-          -- check the values in the compact
-          assertEquals ("hello", "world", "helloworld", 77, 155)
-            (compactGetRoot str2)
-          performMajorGC
-          -- check the values in the compact again
-          assertEquals ("hello", "world", "helloworld", 77, 155)
-            (compactGetRoot str2)
+  str <- compactNew 4096 ()
+  str2 <- makeCompact str
+
+  -- check the values in the compact
+  assertEquals ("hello", "world", "helloworld", 77, 155)
+    (compactGetRoot str2)
+  performMajorGC
+  -- check the values in the compact again
+  assertEquals ("hello", "world", "helloworld", 77, 155)
+    (compactGetRoot str2)

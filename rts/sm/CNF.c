@@ -320,7 +320,7 @@ object_in_compact (StgCompactNFData *str, StgClosure *p)
         objectGetCompact(p) == str;
 }
 
-static rtsBool
+static void
 simple_evacuate (Capability *cap, StgCompactNFData *str, HashTable *hash, StgClosure **p)
 {
     StgWord tag;
@@ -335,14 +335,14 @@ simple_evacuate (Capability *cap, StgCompactNFData *str, HashTable *hash, StgClo
     // (for example by reappending an object that was obtained
     // by compactGetRoot) then do nothing
     if (object_in_compact(str, from))
-        return rtsTrue;
+        return;
 
     // This object was evacuated already, return the existing
     // pointer
     if (hash != NULL &&
         (already = lookupHashTable (hash, (StgWord)from))) {
         *p = TAG_CLOSURE(tag, (StgClosure*)already);
-        return rtsTrue;
+        return;
     }
 
     switch (get_itbl(from)->type) {
@@ -351,8 +351,11 @@ simple_evacuate (Capability *cap, StgCompactNFData *str, HashTable *hash, StgClo
         //
         // Not useful and not NFData
         from = ((StgInd*)from)->indirectee;
-        if (GET_CLOSURE_TAG(from) == 0)
-            return rtsFalse;
+        if (GET_CLOSURE_TAG(from) == 0) {
+            debugBelch("Claimed but not updated BLACKHOLE in Compact, not normal form");
+            return;
+        }
+
         *p = from;
         return simple_evacuate(cap, str, hash, p);
 
@@ -367,11 +370,10 @@ simple_evacuate (Capability *cap, StgCompactNFData *str, HashTable *hash, StgClo
 
     default:
         copy_tag(cap, str, hash, p, from, tag);
-        return rtsTrue;
     }
 }
 
-static rtsBool
+static void
 simple_scavenge_block (Capability *cap, StgCompactNFData *str, StgCompactNFDataBlock *block, HashTable *hash, StgPtr p)
 {
     StgInfoTable *info;
@@ -383,18 +385,15 @@ simple_scavenge_block (Capability *cap, StgCompactNFData *str, StgCompactNFDataB
 
         switch (info->type) {
         case CONSTR_1_0:
-            if (!simple_evacuate(cap, str, hash, &((StgClosure*)p)->payload[0]))
-                return rtsFalse;
+            simple_evacuate(cap, str, hash, &((StgClosure*)p)->payload[0]);
         case CONSTR_0_1:
             p += sizeofW(StgClosure) + 1;
             break;
 
         case CONSTR_2_0:
-            if (!simple_evacuate(cap, str, hash, &((StgClosure*)p)->payload[1]))
-                return rtsFalse;
+            simple_evacuate(cap, str, hash, &((StgClosure*)p)->payload[1]);
         case CONSTR_1_1:
-            if (!simple_evacuate(cap, str, hash, &((StgClosure*)p)->payload[0]))
-                return rtsFalse;
+            simple_evacuate(cap, str, hash, &((StgClosure*)p)->payload[0]);
         case CONSTR_0_2:
             p += sizeofW(StgClosure) + 2;
             break;
@@ -408,8 +407,7 @@ simple_scavenge_block (Capability *cap, StgCompactNFData *str, StgCompactNFDataB
 
             end = (P_)((StgClosure *)p)->payload + info->layout.payload.ptrs;
             for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
-                if (!simple_evacuate(cap, str, hash, (StgClosure **)p))
-                    return rtsFalse;
+                simple_evacuate(cap, str, hash, (StgClosure **)p);
             }
             p += info->layout.payload.nptrs;
             break;
@@ -424,19 +422,15 @@ simple_scavenge_block (Capability *cap, StgCompactNFData *str, StgCompactNFDataB
 
         default:
             debugBelch("Invalid non-NFData closure in Compact\n");
-            return rtsFalse;
         }
     }
-
-    return rtsTrue;
 }
 
-static rtsBool
+static void
 scavenge_loop (Capability *cap, StgCompactNFData *str, StgCompactNFDataBlock *first_block, HashTable *hash, StgPtr p)
 {
     // Scavenge the first block
-    if (!simple_scavenge_block(cap, str, first_block, hash, p))
-        return rtsFalse;
+    simple_scavenge_block(cap, str, first_block, hash, p);
 
     // Now, if the nursery pointer did not change, we're done,
     // otherwise we need to scavenge the next block in the chain
@@ -446,12 +440,9 @@ scavenge_loop (Capability *cap, StgCompactNFData *str, StgCompactNFDataBlock *fi
     // because that is only in the absolute first block in the chain
     while (first_block != str->nursery) {
         first_block = first_block->next;
-        if (!simple_scavenge_block(cap, str, first_block, hash,
-                                   (P_)first_block + sizeof(StgCompactNFDataBlock)))
-            return rtsFalse;
+        simple_scavenge_block(cap, str, first_block, hash,
+                              (P_)first_block + sizeof(StgCompactNFDataBlock));
     }
-
-    return rtsTrue;
 }
 
 #ifdef DEBUG
@@ -482,29 +473,17 @@ objectIsWHNFData (StgClosure *what)
 StgPtr
 compactAppend (Capability *cap, StgCompactNFData *str, StgClosure *what, StgWord share)
 {
-    rtsBool ok;
     StgClosure *root;
     StgClosure *tagged_root;
-    StgPtr start;
     HashTable *hash;
-    StgCompactNFDataBlock *initial_nursery;
-    bdescr *nursery_bd;
     StgCompactNFDataBlock *evaced_block;
 
     ASSERT(objectIsWHNFData(UNTAG_CLOSURE(what)));
 
-    initial_nursery = str->nursery;
-    ASSERT (initial_nursery != NULL);
-    nursery_bd = Bdescr((P_)initial_nursery);
-    start = nursery_bd->free;
     tagged_root = what;
-    if (!simple_evacuate(cap, str, NULL, &tagged_root))
-        return NULL;
+    simple_evacuate(cap, str, NULL, &tagged_root);
 
     root = UNTAG_CLOSURE(tagged_root);
-    // evaced_block can be different from initial_nursery
-    // in case there wasn't enough space for the first
-    // evacuate
     evaced_block = objectGetCompactBlock(root);
 
     if (share) {
@@ -513,27 +492,12 @@ compactAppend (Capability *cap, StgCompactNFData *str, StgClosure *what, StgWord
     } else
         hash = NULL;
 
-    ok = scavenge_loop(cap, str, evaced_block, hash, (P_)root);
+    scavenge_loop(cap, str, evaced_block, hash, (P_)root);
 
     if (share)
         freeHashTable(hash, NULL);
 
-    // Return the tagged pointer for outside use, or NULL
-    // if failed
-    if (__builtin_expect(ok, rtsTrue)) {
-        return (StgPtr)tagged_root;
-    } else {
-        // Undo any partial allocation
-        nursery_bd->free = start;
-        str->nursery = initial_nursery;
-        for (initial_nursery = initial_nursery->next; initial_nursery;
-             initial_nursery = initial_nursery->next) {
-            nursery_bd = Bdescr((P_)initial_nursery);
-            nursery_bd->free = (P_)nursery_bd->start + sizeofW(StgCompactNFDataBlock);
-        }
-
-        return NULL;
-    }
+    return (StgPtr)tagged_root;
 }
 
 STATIC_INLINE void
@@ -615,8 +579,7 @@ compactAppendOne (Capability *cap, StgCompactNFData *str, StgClosure *what)
     ASSERT(objectIsWHNFData(UNTAG_CLOSURE(what)));
 
     tagged_root = what;
-    if (!simple_evacuate(cap, str, NULL, &tagged_root))
-        return NULL;
+    simple_evacuate(cap, str, NULL, &tagged_root);
 
     adjust_indirections(str, UNTAG_CLOSURE(tagged_root));
 
