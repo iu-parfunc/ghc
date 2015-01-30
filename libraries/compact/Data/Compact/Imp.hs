@@ -36,7 +36,6 @@ module Data.Compact.Imp(
   compactResize,
 
   compactAppendEvaledInternal,
-  maybeMakeCompact,
 
   SerializedCompact(..),
   withCompactPtrs,
@@ -89,20 +88,16 @@ compactGetBuffer (Compact buffer _) = buffer
 addrIsNull :: Addr# -> Bool
 addrIsNull addr = isTrue# (nullAddr# `eqAddr#` addr)
 
-maybeMakeCompact :: Compact# -> Addr# -> Maybe (Compact a)
-maybeMakeCompact _ rootAddr | addrIsNull rootAddr = Nothing
-maybeMakeCompact buffer rootAddr = Just $ Compact buffer rootAddr
-
 compactResize :: Compact a -> Word -> IO ()
 compactResize (Compact oldBuffer _) (W# new_size) =
   IO (\s -> case compactResize# oldBuffer new_size s of
          (# s' #) -> (# s', () #) )
 
 compactAppendEvaledInternal :: Compact# -> a -> Int# -> State# RealWorld ->
-                        (# State# RealWorld, Maybe (Compact a) #)
+                        (# State# RealWorld, Compact a #)
 compactAppendEvaledInternal buffer root share s =
   case compactAppend# buffer root share s of
-    (# s', rootAddr #) -> (# s', maybeMakeCompact buffer rootAddr #)
+    (# s', rootAddr #) -> (# s', Compact buffer rootAddr #)
 
 data SerializedCompact a = SerializedCompact {
   serializedCompactGetBlockList :: [(Ptr a, Word)],
