@@ -34,9 +34,11 @@ module Data.Compact.Incremental (
   compactResize,
 
   compactNew,
+  compactNewSmall,
   compactAppendOne,
   compactAppendRecursively,
   compactAppendEvaled,
+  compactAppendSmall,
 
   Compactable,
   compact,
@@ -50,7 +52,6 @@ module Data.Compact.Incremental (
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
 import GHC.Prim (compactNew#,
-                 compactAppendOne#,
                  compactContains#,
                  compactContainsAny#,
                  anyToAddr#,
@@ -61,48 +62,76 @@ import GHC.Types (IO(..), Word(..), isTrue#)
 
 import Data.Compact.Imp(Compact(..),
                         compactGetRoot,
-                        compactGetBuffer,
                         compactResize,
+                        compactNewSmall,
                         compactAppendEvaledInternal,
+                        compactAppendOneInternal,
                         SerializedCompact(..),
-                        withCompactPtrs,
+                        withCompactPtrsInternal,
                         compactImport,
                         compactImportByteStrings)
 
 import Control.DeepSeq (NFData, force)
 
-compactNew :: Compactable a => Word -> a -> IO (Compact a)
-compactNew (W# size) val = do
+compactNewEmpty :: Word -> IO (Compact ())
+compactNewEmpty (W# size) =
   -- cheap trick: () is a constant and so Compact () is the empty compact
   -- and we don't need to append or adjust the address
-  unitStr <- IO (\s -> case compactNew# size s of
-                    (# s', buffer #) -> case anyToAddr# () of
-                      (# rootAddr #) -> (# s', Compact buffer rootAddr #) )
+  -- (you must make sure to never send this Compact anywhere, otherwise
+  -- it will fail to deserialize because the address is not inside it)
+  IO (\s -> case compactNew# size s of
+         (# s', buffer #) -> case anyToAddr# () of
+           (# rootAddr #) -> (# s', LargeCompact buffer rootAddr #) )
+
+compactNew :: Compactable a => Word -> a -> IO (Compact a)
+compactNew size val = do
+  unitStr <- compactNewEmpty size
   compactAppendRecursively unitStr val
 
+-- the small variant of the compactAppend functions is strict in
+-- the object even if it needs not be to help strictness analysis
+-- (that way the function is always strict in the second argument,
+-- and the value can be entered outside the function when needed)
+
 compactAppendEvaled :: Compact b -> a -> IO (Compact a)
-compactAppendEvaled str !root =
-  let buffer = compactGetBuffer str
-  in
-   IO (\s -> compactAppendEvaledInternal buffer root 0# s)
+compactAppendEvaled (LargeCompact buffer _) !root =
+  IO (\s -> compactAppendEvaledInternal buffer root 0# s)
+compactAppendEvaled (SmallCompact _) !root = do
+  unitStr <- compactNewEmpty 4096
+  compactAppendEvaled unitStr root
 
 class Compactable a where
   compact :: Compact b -> a -> IO (Compact a)
 
 compactAppendRecursively :: Compactable a => Compact b -> a -> IO (Compact a)
-compactAppendRecursively str@(Compact buffer _) !val = do
+compactAppendRecursively str@(LargeCompact buffer _) !val = do
   if isTrue# (compactContains# buffer val) then
     case anyToAddr# val of
-      (# rootAddr #) -> return $ Compact buffer rootAddr
+      (# rootAddr #) -> return $ LargeCompact buffer rootAddr
     else if isTrue# (compactContainsAny# val) then
            compactAppendEvaled str val
          else
            compact str val
+compactAppendRecursively (SmallCompact _) !root = compactNew 4096 root
 
-compactAppendOne :: Compact b -> a -> IO (Compact a)
-compactAppendOne (Compact buffer _) !val =
-  IO (\s -> case compactAppendOne# buffer val s of
-         (# s', rootAddr #) -> (# s', Compact buffer rootAddr #) )
+compactAppendOne :: Compactable a => Compact b -> a -> IO (Compact a)
+compactAppendOne (SmallCompact _) !val = compactNew 4096 val
+compactAppendOne str !val =
+  compactAppendOneInternal str val
+
+compactAppendSmall :: Compactable a => Compact b -> a -> IO (Compact a)
+compactAppendSmall (SmallCompact _) = compactNewSmall
+compactAppendSmall str = compactAppendRecursively str
+
+compactMakeLarge :: Compactable a => Compact a -> IO (Compact a)
+compactMakeLarge c@(LargeCompact _ _) = return c
+compactMakeLarge (SmallCompact root) = do
+  compactNew 4096 root
+
+withCompactPtrs :: Compactable a => Compact a -> (SerializedCompact a -> IO c) -> IO c
+withCompactPtrs str func = do
+  largeStr <- compactMakeLarge str
+  withCompactPtrsInternal largeStr func
 
 -- | 'defaultCompactNFData': a default implementation for compact suitable
 -- | for NFData instances

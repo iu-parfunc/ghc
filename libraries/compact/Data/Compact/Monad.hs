@@ -38,15 +38,16 @@ module Data.Compact.Monad (
 
 import Control.Monad
 import Data.Compact.Incremental
+import Data.Compact.Imp
 
 newtype CompactM b a = CompactM {
-  runCompactM :: Compact b -> IO (Compact a) }
+  unCompactM :: Compact b -> IO (Compact a) }
 
 instance Monad (CompactM b) where
-  return v = CompactM $ \str -> compactAppendOne str v
+  return v = CompactM $ \str -> compactAppendOneInternal str v
 
   m >>= f = CompactM $ \str -> do
-    str' <- runCompactM m str
+    str' <- unCompactM m str
     let v = compactGetRoot str'
             -- you may think that this is str', because
             -- CompactM behaves like a state monad, where
@@ -62,7 +63,7 @@ instance Monad (CompactM b) where
             -- because both str and str' share the underlying
             -- buffer, which is what we need to thread the
             -- state down for
-    v `seq` runCompactM (f v) str
+    v `seq` unCompactM (f v) str
 
 instance Applicative (CompactM b) where
   pure = return
@@ -74,3 +75,8 @@ instance Functor (CompactM b) where
 compactPut :: Compactable a => a -> CompactM b a
 compactPut v = CompactM $ \str -> compactAppendRecursively str v
 
+runCompactM :: Compactable b => CompactM b a -> Compact b -> IO (Compact a)
+runCompactM m (SmallCompact root) = do
+  largeStr <- compactNew 4096 root
+  unCompactM m largeStr
+runCompactM m str = unCompactM m str
