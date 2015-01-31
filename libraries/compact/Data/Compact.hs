@@ -31,7 +31,9 @@ module Data.Compact (
 
   compactNew,
   compactNewNoShare,
+  compactNewSmall,
   compactAppend,
+  compactAppendSmall,
   compactAppendNoShare,
   compactResize,
 
@@ -56,11 +58,11 @@ import Control.DeepSeq (NFData, force)
 
 import Data.Compact.Imp(Compact(..),
                         compactGetRoot,
-                        compactGetBuffer,
                         compactResize,
+                        compactNewSmall,
                         compactAppendEvaledInternal,
                         SerializedCompact(..),
-                        withCompactPtrs,
+                        withCompactPtrsInternal,
                         compactImport,
                         compactImportByteStrings)
 
@@ -71,8 +73,10 @@ compactAppendInternal buffer root share s =
     !eval -> compactAppendEvaledInternal buffer eval share s
 
 compactAppendInternalIO :: NFData a => Int# -> Compact b -> a -> IO (Compact a)
-compactAppendInternalIO share str root =
-  IO (\s -> compactAppendInternal (compactGetBuffer str) root share s)
+compactAppendInternalIO share (LargeCompact buffer _) root =
+  IO (\s -> compactAppendInternal buffer root share s)
+compactAppendInternalIO share (SmallCompact _) root =
+  compactNewLargeInternal share 4096 root
 
 compactAppend :: NFData a => Compact b -> a -> IO (Compact a)
 compactAppend = compactAppendInternalIO 1#
@@ -80,13 +84,27 @@ compactAppend = compactAppendInternalIO 1#
 compactAppendNoShare :: NFData a => Compact b -> a -> IO (Compact a)
 compactAppendNoShare = compactAppendInternalIO 0#
 
-compactNewInternal :: NFData a => Int# -> Word -> a -> IO (Compact a)
-compactNewInternal share (W# size) root =
+compactAppendSmall :: NFData a => Compact b -> a -> IO (Compact a)
+compactAppendSmall (SmallCompact _) = compactNewSmall
+compactAppendSmall str = compactAppend str
+
+compactNewLargeInternal :: NFData a => Int# -> Word -> a -> IO (Compact a)
+compactNewLargeInternal share (W# size) root =
   IO (\s -> case compactNew# size s of
          (# s', buffer #) -> compactAppendInternal buffer root share s' )
 
 compactNew :: NFData a => Word -> a -> IO (Compact a)
-compactNew = compactNewInternal 1#
+compactNew = compactNewLargeInternal 1#
 
 compactNewNoShare :: NFData a => Word -> a -> IO (Compact a)
-compactNewNoShare = compactNewInternal 0#
+compactNewNoShare = compactNewLargeInternal 0#
+
+compactMakeLarge :: NFData a => Compact a -> IO (Compact a)
+compactMakeLarge c@(LargeCompact _ _) = return c
+compactMakeLarge (SmallCompact root) = do
+  compactNewLargeInternal 0# 4096 root
+
+withCompactPtrs :: NFData a => Compact a -> (SerializedCompact a -> IO c) -> IO c
+withCompactPtrs str func = do
+  largeStr <- compactMakeLarge str
+  withCompactPtrsInternal largeStr func

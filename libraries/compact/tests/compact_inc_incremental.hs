@@ -24,8 +24,11 @@ makeAppender app val = do
 
 test :: Compact () -> IO (String, String, String, Int, Int)
 test str = do
-  let appendOne = makeAppender $ compactAppendOne str
+  let appendOne :: Compactable a => a -> IO a
+      appendOne = makeAppender $ compactAppendOne str
+      appendRec :: Compactable a => a -> IO a
       appendRec = makeAppender $ compactAppendRecursively str
+      appendEval :: a -> IO a
       appendEval = makeAppender $ compactAppendEvaled str
 
   !v1 <- appendRec "hello"

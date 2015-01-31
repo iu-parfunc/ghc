@@ -32,13 +32,14 @@
 module Data.Compact.Imp(
   Compact(..),
   compactGetRoot,
-  compactGetBuffer,
   compactResize,
+  compactNewSmall,
 
   compactAppendEvaledInternal,
+  compactAppendOneInternal,
 
   SerializedCompact(..),
-  withCompactPtrs,
+  withCompactPtrsInternal,
   compactImport,
   compactImportByteStrings,
 ) where
@@ -46,6 +47,7 @@ module Data.Compact.Imp(
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
 import GHC.Prim (Compact#,
                  compactAppend#,
+                 compactAppendOne#,
                  compactResize#,
                  compactGetFirstBlock#,
                  compactGetNextBlock#,
@@ -74,30 +76,39 @@ import Data.IORef(newIORef, readIORef, writeIORef)
 import Foreign.ForeignPtr(withForeignPtr)
 import Foreign.Marshal.Utils(copyBytes)
 
-data Compact a = Compact Compact# Addr#
+data Compact a = LargeCompact Compact# Addr# | SmallCompact a
 
 -- | 'compactGetRoot': retrieve the object that was stored in a Compact
 compactGetRoot :: Compact a -> a
-compactGetRoot (Compact _ obj) =
+compactGetRoot (LargeCompact _ obj) =
   case addrToAny# obj of
     (# a #) -> a
-
-compactGetBuffer :: Compact a -> Compact#
-compactGetBuffer (Compact buffer _) = buffer
+compactGetRoot (SmallCompact obj) = obj
 
 addrIsNull :: Addr# -> Bool
 addrIsNull addr = isTrue# (nullAddr# `eqAddr#` addr)
 
 compactResize :: Compact a -> Word -> IO ()
-compactResize (Compact oldBuffer _) (W# new_size) =
+compactResize (LargeCompact oldBuffer _) (W# new_size) =
   IO (\s -> case compactResize# oldBuffer new_size s of
          (# s' #) -> (# s', () #) )
+compactResize (SmallCompact _) _ =
+  return ()
+
+compactNewSmall :: a -> IO (Compact a)
+compactNewSmall root = return $ SmallCompact root
 
 compactAppendEvaledInternal :: Compact# -> a -> Int# -> State# RealWorld ->
-                        (# State# RealWorld, Compact a #)
+                               (# State# RealWorld, Compact a #)
 compactAppendEvaledInternal buffer root share s =
   case compactAppend# buffer root share s of
-    (# s', rootAddr #) -> (# s', Compact buffer rootAddr #)
+    (# s', rootAddr #) -> (# s', LargeCompact buffer rootAddr #)
+
+compactAppendOneInternal :: Compact b -> a -> IO (Compact a)
+compactAppendOneInternal (LargeCompact buffer _) !val =
+  IO (\s -> case compactAppendOne# buffer val s of
+         (# s', rootAddr #) -> (# s', LargeCompact buffer rootAddr #) )
+compactAppendOneInternal (SmallCompact _) _ = undefined
 
 data SerializedCompact a = SerializedCompact {
   serializedCompactGetBlockList :: [(Ptr a, Word)],
@@ -116,19 +127,20 @@ mkBlockList buffer = go (compactGetFirstBlock# buffer)
     mkBlock :: Addr# -> Word# -> (Ptr a, Word)
     mkBlock block size = (Ptr block, W# size)
 
-withCompactPtrs :: Compact a -> (SerializedCompact a -> IO c) -> IO c
-withCompactPtrs c@(Compact buffer rootAddr) func = do
+withCompactPtrsInternal :: Compact a -> (SerializedCompact a -> IO c) -> IO c
+withCompactPtrsInternal c@(LargeCompact buffer rootAddr) func = do
   let serialized = SerializedCompact (mkBlockList buffer) (Ptr rootAddr)
   r <- func serialized
   IO (\s -> case touch# c s of
          s' -> (# s', r #) )
+withCompactPtrsInternal (SmallCompact _) _ = undefined
 
 fixupPointers :: Addr# -> Addr# -> State# RealWorld -> (# State# RealWorld, Maybe (Compact a) #)
 fixupPointers firstBlock rootAddr s =
   case compactFixupPointers# firstBlock rootAddr s of
     (# s', buffer, adjustedRoot #) ->
       if addrIsNull adjustedRoot then (# s', Nothing #)
-      else (# s', Just $ Compact buffer adjustedRoot #)
+      else (# s', Just $ LargeCompact buffer adjustedRoot #)
 
 compactImport :: SerializedCompact a -> (Ptr b -> Word -> IO ()) -> IO (Maybe (Compact a))
 
