@@ -306,13 +306,13 @@ static void *getCommittedMBlocksAt(char *addr, nat n)
         if (iter->address == address) {
             iter->address = address + size;
             iter->size -= size;
-            return (void*)address;
+            goto success;
         }
 
         // We want to allocate at the end, cut the free block at the end
         if (iter->address + iter->size == address + size) {
             iter->size -= size;
-            return (void*)address;
+            goto success;
         }
 
         // We need to split!
@@ -325,7 +325,7 @@ static void *getCommittedMBlocksAt(char *addr, nat n)
             new_iter->next->prev = new_iter;
         iter->size = address - iter->address;
         iter->next = new_iter;
-        return (void*)address;
+        goto success;
     }
 
     // The address is not in the free list, check the high_watermark
@@ -334,7 +334,7 @@ static void *getCommittedMBlocksAt(char *addr, nat n)
 
     if (address == *mblock_high_watermark) {
         *mblock_high_watermark += size;
-        return (void*)address;
+        goto success;
     }
 
     // Need to create a new free block
@@ -348,6 +348,9 @@ static void *getCommittedMBlocksAt(char *addr, nat n)
         last->next = new_iter;
     else
         *free_list_head = new_iter;
+
+ success:
+    osCommitMemory((void*)address, size);
 
     return (void*)address;
 }
