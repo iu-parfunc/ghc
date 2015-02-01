@@ -1999,7 +1999,7 @@ stg_compactFixupPointerszh ( W_ first_block, W_ root )
     P_ gcstr;
     W_ ok;
 
-    str = first_block - SIZEOF_StgCompactNFDataBlock::W_;
+    str = first_block + SIZEOF_StgCompactNFDataBlock::W_;
     (ok) = ccall compactFixupPointers (str "ptr", root "ptr");
 
     // Now we can let the GC know about str, because it was linked
