@@ -621,6 +621,7 @@ GarbageCollect (nat collect_gen,
         }
 
         // add the new blocks we promoted during this GC
+        gen->n_large_blocks += gen->n_scavenged_large_blocks;
         gen->n_compact_blocks += gen->n_live_compact_blocks;
     }
 
