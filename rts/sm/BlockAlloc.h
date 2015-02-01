@@ -16,7 +16,9 @@ bdescr *allocLargeChunk (W_ min, W_ max);
 /* Debugging  -------------------------------------------------------------- */
 
 extern W_ countBlocks       (bdescr *bd);
+extern W_ countBlocksOne    (bdescr *bd);
 extern W_ countAllocdBlocks (bdescr *bd);
+extern W_ countAllocdBlocksOne (bdescr *bd);
 extern void returnMemoryToOS(nat n);
 
 #ifdef DEBUG

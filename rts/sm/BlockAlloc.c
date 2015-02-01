@@ -1070,9 +1070,15 @@ countBlocks(bdescr *bd)
 {
     W_ n;
     for (n=0; bd != NULL; bd=bd->link) {
-        n += bd->blocks;
+        n += countBlocksOne(bd);
     }
     return n;
+}
+
+W_
+countBlocksOne(bdescr *bd)
+{
+    return bd->blocks;
 }
 
 // (*1) Just like countBlocks, except that we adjust the count for a
@@ -1081,16 +1087,24 @@ countBlocks(bdescr *bd)
 // subsequent megablock.  This is so we can tally the count with the
 // number of blocks allocated in the system, for memInventory().
 W_
+countAllocdBlocksOne(bdescr *bd)
+{
+    W_ n;
+    n = bd->blocks;
+    // hack for megablock groups: see (*1) above
+    if (bd->blocks > BLOCKS_PER_MBLOCK) {
+        n -= (MBLOCK_SIZE / BLOCK_SIZE - BLOCKS_PER_MBLOCK)
+            * (bd->blocks/(MBLOCK_SIZE/BLOCK_SIZE));
+    }
+    return n;
+}
+
+W_
 countAllocdBlocks(bdescr *bd)
 {
     W_ n;
     for (n=0; bd != NULL; bd=bd->link) {
-        n += bd->blocks;
-        // hack for megablock groups: see (*1) above
-        if (bd->blocks > BLOCKS_PER_MBLOCK) {
-            n -= (MBLOCK_SIZE / BLOCK_SIZE - BLOCKS_PER_MBLOCK)
-                * (bd->blocks/(MBLOCK_SIZE/BLOCK_SIZE));
-        }
+        n += countAllocdBlocksOne(bd);
     }
     return n;
 }
