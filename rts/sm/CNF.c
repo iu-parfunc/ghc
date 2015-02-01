@@ -785,7 +785,7 @@ find_pointer(StgCompactNFData *str, StgClosure *q)
         StgWord size;
 
         bd = Bdescr((P_)block);
-        size = bd->free - bd->start;
+        size = (W_)bd->free - (W_)bd->start;
         if ((W_)block->self <= address &&
             address < (W_)block->self + size) {
             return block;
@@ -829,7 +829,7 @@ fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
     StgPtr p;
 
     bd = Bdescr((P_)block);
-    p = bd->start;
+    p = bd->start + sizeofW(StgCompactNFDataBlock);
     while (p < bd->free) {
         ASSERT (LOOKS_LIKE_CLOSURE_PTR(p));
         info = get_itbl((StgClosure*)p);
@@ -868,6 +868,16 @@ fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
             break;
         }
 
+        case COMPACT_NFDATA:
+            if (p == (bd->start + sizeofW(StgCompactNFDataBlock))) {
+                // Ignore the COMPACT_NFDATA header
+                // (it will be fixed up later)
+                p += sizeofW(StgCompactNFData);
+                break;
+            }
+
+            // fall through
+
         default:
             debugBelch("Invalid non-NFData closure in Compact\n");
             return rtsFalse;
@@ -905,6 +915,7 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
         last = block;
 
         block->self = block;
+        block->owner = str;
         block = block->next;
     } while(block);
 
@@ -936,14 +947,10 @@ maybe_fixup_internal_pointers (StgCompactNFDataBlock *block,
     if (!ok)
         *proot = NULL;
 
-    // Do the late fixup even if we did not fixup all
-    // internal pointers, we need that for GC and Sanity
-    fixup_late(str, block);
-
     return *proot;
 }
 
-static void
+static rtsBool
 maybe_fixup_info_tables (StgCompactNFDataBlock *block,
                          StgCompactNFData      *str)
 {
@@ -951,7 +958,7 @@ maybe_fixup_info_tables (StgCompactNFDataBlock *block,
 
     build_id = getBinaryBuildId();
     if (memcmp(str->build_id, build_id, BUILD_ID_SIZE) == 0)
-        return;
+        return rtsTrue;
 
     // Slow path: reconstruct info tables
     debugBelch("Binary versions do not match, slow path to adjust"
@@ -959,6 +966,8 @@ maybe_fixup_info_tables (StgCompactNFDataBlock *block,
 
     // FIXME
     (void)block;
+
+    return rtsFalse;
 }
 
 StgPtr
@@ -970,9 +979,14 @@ compactFixupPointers(StgCompactNFData *str,
 
     block = (StgCompactNFDataBlock*)((W_)str - sizeof(StgCompactNFDataBlock));
 
-    root = maybe_fixup_internal_pointers(block, str, root);
+    if (maybe_fixup_info_tables(block, str))
+        root = maybe_fixup_internal_pointers(block, str, root);
+    else
+        root = NULL;
 
-    maybe_fixup_info_tables(block, str);
+    // Do the late fixup even if we did not fixup all
+    // internal pointers or info tables, we need that for GC and Sanity
+    fixup_late(str, block);
 
     // Now we're ready to let the GC, Sanity, the profiler
     // etc. know about this object
