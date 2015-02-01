@@ -868,13 +868,64 @@ void findSlop(bdescr *bd)
 }
 
 static W_
+countCompactBlocks(bdescr *outer)
+{
+    StgCompactNFDataBlock *block;
+    W_ count;
+
+    count = 0;
+    while (outer) {
+        bdescr *inner;
+
+        block = (StgCompactNFDataBlock*)(outer->start);
+        do {
+            inner = Bdescr((P_)block);
+            ASSERT (inner->flags & BF_COMPACT);
+
+            count += inner->blocks;
+            block = block->next;
+        } while(block);
+
+        outer = outer->link;
+    }
+
+    return count;
+}
+
+static W_
+countAllocdCompactBlocks(bdescr *outer)
+{
+    StgCompactNFDataBlock *block;
+    W_ count;
+
+    count = 0;
+    while (outer) {
+        bdescr *inner;
+
+        block = (StgCompactNFDataBlock*)(outer->start);
+        do {
+            inner = Bdescr((P_)block);
+            ASSERT (inner->flags & BF_COMPACT);
+
+            count += countAllocdBlocksOne(inner);
+            block = block->next;
+        } while(block);
+
+        outer = outer->link;
+    }
+
+    return count;
+}
+
+static W_
 genBlocks (generation *gen)
 {
     ASSERT(countBlocks(gen->blocks) == gen->n_blocks);
     ASSERT(countBlocks(gen->large_objects) == gen->n_large_blocks);
+    ASSERT(countCompactBlocks(gen->compact_objects) == gen->n_compact_blocks);
     return gen->n_blocks + gen->n_old_blocks +
             countAllocdBlocks(gen->large_objects) +
-        gen->n_compact_blocks;
+        countAllocdCompactBlocks(gen->compact_objects);
 }
 
 void
