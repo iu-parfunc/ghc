@@ -683,6 +683,8 @@ STATIC_INLINE rtsBool
 can_alloc_group_at (void    *addr,
                     StgWord  size)
 {
+    nat chunk;
+
     if (BLOCK_ROUND_DOWN (addr) != addr)
         return rtsFalse;
 
@@ -693,6 +695,10 @@ can_alloc_group_at (void    *addr,
         if (MBLOCK_ROUND_DOWN(addr) != MBLOCK_ROUND_DOWN((W_)addr + size))
             return rtsFalse;
     }
+
+    chunk = mblock_address_get_chunk(addr);
+    if (chunk == 0 || chunk > MBLOCK_NUM_CHUNKS)
+        return rtsFalse;
 
     return rtsTrue;
 }
