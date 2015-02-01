@@ -310,12 +310,8 @@ evacuate_large(StgPtr p)
   // these objects, because they aren't allowed to contain any outgoing
   // pointers.  For these blocks, we skip the scavenge stage and put
   // them straight on the scavenged_large_objects list.
-  if (bd->flags & (BF_PINNED | BF_COMPACT)) {
-      if (bd->flags & BF_PINNED) {
-          ASSERT(get_itbl((StgClosure *)p)->type == ARR_WORDS);
-      } else {
-          ASSERT(get_itbl((StgClosure *)p)->type == COMPACT_NFDATA);
-      }
+  if (bd->flags & BF_PINNED) {
+      ASSERT(get_itbl((StgClosure *)p)->type == ARR_WORDS);
 
       if (new_gen != gen) { ACQUIRE_SPIN_LOCK(&new_gen->sync); }
       dbl_link_onto(bd, &new_gen->scavenged_large_objects);
