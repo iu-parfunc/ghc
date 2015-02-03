@@ -2436,6 +2436,23 @@ primop  CompactFixupPointersOp "compactFixupPointers#" GenPrimOp
    has_side_effects = True
    out_of_line      = True
 
+primop  CompactInitForSymbolsOp "compactInitForSymbols#" GenPrimOp
+   Compact# -> State# RealWorld -> (# State# RealWorld #)
+   with
+   has_side_effects = True
+   out_of_line      = True
+
+primop  CompactBuildSymbolTableOp "compactBuildSymbolTable#" GenPrimOp
+   Compact# -> State# RealWorld -> (# State# RealWorld #)
+   with
+   has_side_effects = True
+   out_of_line      = True
+
+primop  CompactWillHaveSymbolsOp "compactWillHaveSymbols#" GenPrimOp
+   Compact# -> Int#
+   with
+   out_of_line      = True
+
 ------------------------------------------------------------------------
 section "Unsafe pointer equality"
 --  (#1 Bad Guy: Alistair Reid :)

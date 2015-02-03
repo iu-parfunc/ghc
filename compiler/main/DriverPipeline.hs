@@ -1999,6 +1999,13 @@ linkBinary' staticLink dflags o_files dep_packages = do
                           then ["-Wl,-read_only_relocs,suppress"]
                           else [])
 
+                      -- export dynamic symbols on Linux, for use
+                      -- with Compact symbol tables
+                      ++ (if platformOS   platform == OSLinux &&
+                             not staticLink
+                          then ["-Wl,--export-dynamic"]
+                          else [])
+
                       ++ o_files
                       ++ lib_path_opts)
                       ++ extra_ld_inputs

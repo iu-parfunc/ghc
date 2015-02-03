@@ -16,6 +16,9 @@
 
 #include "BeginPrivate.h"
 
+void              initCompact  (void);
+void              exitCompact  (void);
+
 StgCompactNFData *compactNew   (Capability      *cap,
                                 StgWord          size);
 StgPtr            compactAppend(Capability       *cap,
@@ -32,6 +35,12 @@ void              compactFree  (StgCompactNFData *str);
 void              compactMarkKnown(StgCompactNFData *str);
 StgWord           compactContains(StgCompactNFData *str,
                                   StgPtr            what);
+void              compactInitForSymbols(StgCompactNFData *str);
+void              compactBuildSymbolTable(Capability       *cap,
+                                          StgCompactNFData *str);
+
+StgWord           countCompactBlocks(bdescr *outer);
+StgWord           countAllocdCompactBlocks(bdescr *outer);
 
 StgCompactNFDataBlock *compactAllocateBlockAt(Capability            *cap,
                                               StgPtr                 addr,

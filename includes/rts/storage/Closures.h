@@ -446,13 +446,16 @@ typedef struct StgCompactNFData_ {
                                    // need the compact info pointer
                                    // (we don't even need fwding pointers
                                    // because it's a large object)
+    StgWord8               build_id[16]; // A MD5 sum of all loaded shared librariees
     StgWord                totalW; // for stats/profiling only
     StgWord                autoBlockW; // size of automatically appended blocks
     StgCompactNFDataBlock *nursery; // where to (try to) allocate from
                                     // when appending
-    StgCompactNFDataBlock *last; // the last block of the chain (to known
+    StgCompactNFDataBlock *last; // the last block of the chain (to know
                                  // where to append new blocks for resize)
-    StgWord8               build_id[16]; // A MD5 sum of all loaded shared libraries
+    StgCompactNFDataBlock *symbols;
+    void                  *symbols_hash;
+    StgWord                symbols_serial;
 } StgCompactNFData;
 
 
