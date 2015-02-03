@@ -414,6 +414,9 @@ RTS_FUN_DECL(stg_compactGetFirstBlockzh);
 RTS_FUN_DECL(stg_compactGetNextBlockzh);
 RTS_FUN_DECL(stg_compactAllocateBlockAtzh);
 RTS_FUN_DECL(stg_compactFixupPointerszh);
+RTS_FUN_DECL(stg_compactInitForSymbolszh);
+RTS_FUN_DECL(stg_compactBuildSymbolTablezh);
+RTS_FUN_DECL(stg_compactWillHaveSymbolszh);
 
 RTS_FUN_DECL(stg_forkzh);
 RTS_FUN_DECL(stg_forkOnzh);
