@@ -42,6 +42,9 @@ module Data.Compact.Imp(
   withCompactPtrsInternal,
   compactImport,
   compactImportByteStrings,
+
+  compactInitForSymbols,
+  compactBuildSymbolTable,
 ) where
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
@@ -53,6 +56,9 @@ import GHC.Prim (Compact#,
                  compactGetNextBlock#,
                  compactAllocateBlockAt#,
                  compactFixupPointers#,
+                 compactInitForSymbols#,
+                 compactBuildSymbolTable#,
+                 compactWillHaveSymbols#,
                  touch#,
                  Addr#,
                  nullAddr#,
@@ -70,6 +76,7 @@ import GHC.Word (Word8)
 
 import GHC.Ptr (Ptr(..), plusPtr)
 
+import Control.Monad
 import qualified Data.ByteString as ByteString
 import Data.ByteString.Internal(toForeignPtr)
 import Data.IORef(newIORef, readIORef, writeIORef)
@@ -127,6 +134,10 @@ mkBlockList buffer = go (compactGetFirstBlock# buffer)
     mkBlock :: Addr# -> Word# -> (Ptr a, Word)
     mkBlock block size = (Ptr block, W# size)
 
+compactWillHaveSymbols :: Compact# -> Bool
+compactWillHaveSymbols buffer =
+  isTrue# (compactWillHaveSymbols# buffer)
+
 -- We MUST mark withCompactPtrsInternal as NOINLINE
 -- Otherwise the compiler will eliminate the call to touch#
 -- causing the Compact# to be potentially GCed too eagerly,
@@ -135,6 +146,7 @@ mkBlockList buffer = go (compactGetFirstBlock# buffer)
 {-# NOINLINE withCompactPtrsInternal #-}
 withCompactPtrsInternal :: Compact a -> (SerializedCompact a -> IO c) -> IO c
 withCompactPtrsInternal c@(LargeCompact buffer rootAddr) func = do
+  when (compactWillHaveSymbols buffer) (compactBuildSymbolTable c)
   let serialized = SerializedCompact (mkBlockList buffer) (Ptr rootAddr)
   -- we must be strict, to avoid smart uses of ByteStrict.Lazy that return
   -- a thunk instead of a ByteString (but the thunk references the Ptr,
@@ -234,3 +246,15 @@ compactImportByteStrings serialized stringList =
             copyBytes to (from `plusPtr` off) (fromIntegral size)
           writeIORef state rest
     compactImport serialized filler
+
+compactInitForSymbols :: Compact a -> IO ()
+compactInitForSymbols (SmallCompact _) = return ()
+compactInitForSymbols (LargeCompact buffer _) =
+  IO (\s -> case compactInitForSymbols# buffer s of
+         (# s' #) -> (# s', () #) )
+
+compactBuildSymbolTable :: Compact a -> IO ()
+compactBuildSymbolTable (SmallCompact _) = return ()
+compactBuildSymbolTable (LargeCompact buffer _) =
+  IO (\s -> case compactBuildSymbolTable# buffer s of
+         (# s' #) -> (# s', () #) )

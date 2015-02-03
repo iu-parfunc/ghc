@@ -229,6 +229,19 @@ int keysHashTable(HashTable *table, StgWord keys[], int szKeys) {
     return k;
 }
 
+void forEachHashTable(HashTable *table, ForEachHashFunction fn, void *userdata) {
+    int segment;
+    for(segment=0;segment<HDIRSIZE && table->dir[segment];segment+=1) {
+        int index;
+        for(index=0;index<HSEGSIZE;index+=1) {
+            HashList *hl;
+            for(hl=table->dir[segment][index];hl;hl=hl->next) {
+                fn(hl->key, hl->data, userdata);
+            }
+        }
+    }
+}
+
 /* -----------------------------------------------------------------------------
  * We allocate the hashlist cells in large chunks to cut down on malloc
  * overhead.  Although we keep a free list of hashlist cells, we make

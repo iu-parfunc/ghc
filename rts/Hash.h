@@ -28,6 +28,9 @@ int keyCountHashTable (HashTable *table);
 //
 int keysHashTable(HashTable *table, StgWord keys[], int szKeys);
 
+typedef void ForEachHashFunction(StgWord key, void *data, void *userdata);
+void forEachHashTable(HashTable *table, ForEachHashFunction fn, void *userdata);
+
 /* Hash table access where the keys are C strings (the strings are
  * assumed to be allocated by the caller, and mustn't be deallocated
  * until the corresponding hash table entry has been removed).

@@ -506,13 +506,18 @@ checkCompactObjects(bdescr *bd)
 
         totalW = 0;
         for ( ; block ; block = block->next) {
-            last = block;
-            ASSERT (block->owner == str);
-            totalW += Bdescr((P_)block)->blocks * BLOCK_SIZE_W;
+            if (block->owner != NULL) {
+                last = block;
+                ASSERT (block->owner == str);
+                totalW += Bdescr((P_)block)->blocks * BLOCK_SIZE_W;
+            }
         }
 
         ASSERT (str->totalW == totalW);
         ASSERT (str->last == last);
+        ASSERT (str->symbols == last->next);
+        ASSERT (str->symbols == NULL || str->symbols_hash != NULL);
+        ASSERT (str->symbols_hash == NULL || str->symbols_serial >= 1);
     }
 }
 
@@ -865,56 +870,6 @@ void findSlop(bdescr *bd)
                        bd->start, bd, slop / (1024/sizeof(W_)));
         }
     }
-}
-
-static W_
-countCompactBlocks(bdescr *outer)
-{
-    StgCompactNFDataBlock *block;
-    W_ count;
-
-    count = 0;
-    while (outer) {
-        bdescr *inner;
-
-        block = (StgCompactNFDataBlock*)(outer->start);
-        do {
-            inner = Bdescr((P_)block);
-            ASSERT (inner->flags & BF_COMPACT);
-
-            count += inner->blocks;
-            block = block->next;
-        } while(block);
-
-        outer = outer->link;
-    }
-
-    return count;
-}
-
-static W_
-countAllocdCompactBlocks(bdescr *outer)
-{
-    StgCompactNFDataBlock *block;
-    W_ count;
-
-    count = 0;
-    while (outer) {
-        bdescr *inner;
-
-        block = (StgCompactNFDataBlock*)(outer->start);
-        do {
-            inner = Bdescr((P_)block);
-            ASSERT (inner->flags & BF_COMPACT);
-
-            count += countAllocdBlocksOne(inner);
-            block = block->next;
-        } while(block);
-
-        outer = outer->link;
-    }
-
-    return count;
 }
 
 static W_

@@ -39,6 +39,7 @@
 #include "Globals.h"
 #include "FileLock.h"
 #include "LinkerInternals.h"
+#include "sm/CNF.h"
 
 #if defined(PROFILING)
 # include "ProfHeap.h"
@@ -271,6 +272,9 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     ioManagerStart();
 #endif
 
+    /* initialize compacts */
+    initCompact();
+
     /* Record initialization times */
     stat_endInit();
 }
@@ -401,6 +405,9 @@ hs_exit_(rtsBool wait_foreign)
 
     /* free the stable pointer table */
     exitStableTables();
+
+    /* free compact symbol tables */
+    exitCompact();
 
 #if defined(DEBUG)
     /* free the thread label table */

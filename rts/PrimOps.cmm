@@ -2010,6 +2010,27 @@ stg_compactFixupPointerszh ( W_ first_block, W_ root )
     return (gcstr, ok);
 }
 
+stg_compactInitForSymbolszh ( P_ str )
+{
+    ccall compactInitForSymbols (str "ptr");
+    return ();
+}
+
+stg_compactBuildSymbolTablezh ( P_ str )
+{
+    ccall compactBuildSymbolTable (MyCapability() "ptr", str "ptr");
+    return ();
+}
+
+stg_compactWillHaveSymbolszh ( P_ str )
+{
+    W_ symbols_hash;
+
+    symbols_hash = StgCompactNFData_symbols_hash(str);
+
+    return (symbols_hash != 0::W_);
+}
+
 /* -----------------------------------------------------------------------------
    Bytecode object primitives
    -------------------------------------------------------------------------  */
