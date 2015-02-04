@@ -447,7 +447,9 @@ typedef struct StgCompactNFData_ {
                                    // (we don't even need fwding pointers
                                    // because it's a large object)
     StgWord8               build_id[16]; // A MD5 sum of all loaded shared librariees
-    StgWord                totalW; // for stats/profiling only
+    StgWord                totalW; // for proper accounting in evac, includes
+                                   // slop and symbols blocks
+    StgWord                totalDataW; // for stats/profiling only
     StgWord                autoBlockW; // size of automatically appended blocks
     StgCompactNFDataBlock *nursery; // where to (try to) allocate from
                                     // when appending
