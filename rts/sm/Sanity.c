@@ -509,8 +509,9 @@ checkCompactObjects(bdescr *bd)
             if (block->owner != NULL) {
                 last = block;
                 ASSERT (block->owner == str);
-                totalW += Bdescr((P_)block)->blocks * BLOCK_SIZE_W;
             }
+
+            totalW += Bdescr((P_)block)->blocks * BLOCK_SIZE_W;
         }
 
         ASSERT (str->totalW == totalW);
