@@ -88,11 +88,16 @@ exitCompact(void)
 }
 
 static StgCompactNFDataBlock *
-compactAllocateBlock(Capability *cap, StgWord aligned_size, rtsBool linkGeneration)
+compactAllocateBlock(Capability            *cap,
+                     StgWord                aligned_size,
+                     void                  *addr,
+                     StgCompactNFDataBlock *first,
+                     rtsBool                linkGeneration)
 {
     StgCompactNFDataBlock *self;
     bdescr *block;
     nat n_blocks;
+    generation *g;
 
     n_blocks = aligned_size / BLOCK_SIZE;
 
@@ -113,15 +118,41 @@ compactAllocateBlock(Capability *cap, StgWord aligned_size, rtsBool linkGenerati
         stg_exit(EXIT_HEAPOVERFLOW);
     }
 
+    // It is imperative that first is the first block in the compact
+    // (or NULL if the compact does not exist yet)
+    // because the evacuate code does not update the generation of
+    // blocks other than the first (so we would get the statistics
+    // wrong and crash in Sanity)
+    if (first != NULL) {
+        block = Bdescr((P_)first);
+        g = block->gen;
+    } else {
+        g = g0;
+    }
+
     ACQUIRE_SM_LOCK;
 #ifdef USE_STRIPED_ALLOCATOR
-    block = allocGroupInChunk(RtsFlags.GcFlags.sharedChunk, n_blocks);
+    if (addr != NULL) {
+        block = allocGroupAt(addr, n_blocks);
+        if (block == NULL) {
+            // argh, we could not allocate where we wanted
+            // allocate somewhere in the chunk where this compact comes from
+            // and we'll do a pointer adjustment pass later
+            block = allocGroupInChunk(mblock_address_get_chunk(addr), n_blocks);
+        }
+    } else {
+        block = allocGroupInChunk(RtsFlags.GcFlags.sharedChunk, n_blocks);
+    }
 #else
+    ASSERT (addr == NULL);
     block = allocGroup(n_blocks);
 #endif
-    if (linkGeneration)
+    if (linkGeneration) {
+        ASSERT (first == NULL);
+        ASSERT (g == g0);
         dbl_link_onto(block, &g0->compact_objects);
-    g0->n_compact_blocks += block->blocks;
+    }
+    g->n_compact_blocks += block->blocks;
     RELEASE_SM_LOCK;
 
     cap->total_allocated += aligned_size / sizeof(StgWord);
@@ -130,7 +161,7 @@ compactAllocateBlock(Capability *cap, StgWord aligned_size, rtsBool linkGenerati
     self->self = self;
     self->next = NULL;
 
-    initBdescr(block, g0, g0);
+    initBdescr(block, g, g);
     for ( ; n_blocks > 0; block++, n_blocks--)
         block->flags = BF_COMPACT;
 
@@ -249,7 +280,7 @@ compactNew (Capability *cap, StgWord size)
 
     aligned_size = BLOCK_ROUND_UP(size + sizeof(StgCompactNFDataBlock)
                                   + sizeof(StgCompactNFDataBlock));
-    block = compactAllocateBlock(cap, aligned_size, rtsTrue);
+    block = compactAllocateBlock(cap, aligned_size, NULL, NULL, rtsTrue);
 
     self = firstBlockGetCompact(block);
     SET_INFO((StgClosure*)self, &stg_COMPACT_NFDATA_info);
@@ -273,13 +304,14 @@ compactNew (Capability *cap, StgWord size)
     return self;
 }
 
-static void
+static StgCompactNFDataBlock *
 compactAppendBlock (Capability *cap, StgCompactNFData *str, StgWord aligned_size)
 {
     StgCompactNFDataBlock *block;
     bdescr *bd;
 
-    block = compactAllocateBlock(cap, aligned_size, rtsFalse);
+    block = compactAllocateBlock(cap, aligned_size, NULL,
+                                 compactGetFirstBlock(str), rtsFalse);
     block->owner = str;
 
     // The last data block always points to the first symbols block
@@ -290,10 +322,13 @@ compactAppendBlock (Capability *cap, StgCompactNFData *str, StgWord aligned_size
     str->last = block;
     if (str->nursery == NULL)
         str->nursery = block;
+    str->totalW += aligned_size / sizeof(StgWord);
 
     bd = Bdescr((P_)block);
     bd->free = (StgPtr)((W_)block + sizeof(StgCompactNFDataBlock));
     ASSERT (bd->free == (StgPtr)block + sizeofW(StgCompactNFDataBlock));
+
+    return block;
 }
 
 void
@@ -303,7 +338,6 @@ compactResize (Capability *cap, StgCompactNFData *str, StgWord new_size)
 
     aligned_size = BLOCK_ROUND_UP(new_size + sizeof(StgCompactNFDataBlock));
 
-    str->totalW += aligned_size / sizeof(StgWord);
     str->autoBlockW = aligned_size / sizeof(StgWord);
 
     compactAppendBlock(cap, str, aligned_size);
@@ -398,18 +432,32 @@ static void
 allocate_loop (Capability *cap, StgCompactNFData *str, StgWord sizeW, StgPtr *at)
 {
     rtsBool ok;
+    StgCompactNFDataBlock *block;
 
-    while (str->nursery != NULL) {
+    // try the nursery first
+ retry:
+    if (str->nursery != NULL) {
         if (allocate_in_compact(str->nursery, sizeW, at))
             return;
 
-        if (block_is_full (str->nursery))
+        if (block_is_full (str->nursery)) {
             str->nursery = str->nursery->next;
+            goto retry;
+        }
+
+        // try subsequent blocks
+        block = str->nursery->next;
+        while (block != NULL) {
+            if (allocate_in_compact(block, sizeW, at))
+                return;
+
+            block = block->next;
+        }
     }
 
-    compactAppendBlock(cap, str, str->autoBlockW);
+    block = compactAppendBlock(cap, str, str->autoBlockW * sizeof(StgWord));
     ASSERT (str->nursery != NULL);
-    ok = allocate_in_compact(str->nursery, sizeW, at);
+    ok = allocate_in_compact(block, sizeW, at);
 #if DEBUG
     ASSERT (ok);
 #else
@@ -793,77 +841,6 @@ compactContains (StgCompactNFData *str, StgPtr what)
 }
 
 #ifdef USE_STRIPED_ALLOCATOR
-static StgCompactNFDataBlock *
-compactDoAllocateBlockAt(Capability *cap, void *addr, StgWord aligned_size)
-{
-    StgCompactNFDataBlock *self;
-    bdescr *block;
-    nat n_blocks;
-
-    n_blocks = aligned_size / BLOCK_SIZE;
-
-    // Attempting to allocate an object larger than maxHeapSize
-    // should definitely be disallowed.  (bug #1791)
-    if ((RtsFlags.GcFlags.maxHeapSize > 0 &&
-         n_blocks >= RtsFlags.GcFlags.maxHeapSize) ||
-        n_blocks >= HS_INT32_MAX)   // avoid overflow when
-                                    // calling allocGroup() below
-    {
-        heapOverflow();
-        // heapOverflow() doesn't exit (see #2592), but we aren't
-        // in a position to do a clean shutdown here: we
-        // either have to allocate the memory or exit now.
-        // Allocating the memory would be bad, because the user
-        // has requested that we not exceed maxHeapSize, so we
-        // just exit.
-        stg_exit(EXIT_HEAPOVERFLOW);
-    }
-
-    ACQUIRE_SM_LOCK;
-    block = allocGroupAt(addr, n_blocks);
-    if (block == NULL) {
-        // argh, we could not allocate where we wanted
-        // allocate somewhere in the chunk where this compact comes from
-        // and we'll do a pointer adjustment pass later
-        block = allocGroupInChunk(mblock_address_get_chunk(addr), n_blocks);
-    }
-    // We do not link the new object into the generation ever
-    // - we cannot let the GC know about this object until we're done
-    // importing it and we have fixed up all info tables and stuff
-    //
-    // but we do update n_compact_blocks, otherwise memInventory()
-    // in Sanity will think we have a memory leak, because it compares
-    // the blocks he knows about with the blocks obtained by the
-    // block allocator
-    // (if by chance a memory leak does happen due to a bug somewhere
-    // else, memInventory will also report that all compact blocks
-    // associated with this compact are leaked - but they are not really,
-    // we have a pointer to them and we're not losing track of it, it's
-    // just we can't use the GC until we're done with the import)
-    //
-    // (That btw means that the high level import code must be careful
-    // not to lose the pointer, so don't use the primops directly
-    // unless you know what you're doing!)
-    g0->n_compact_blocks += block->blocks;
-    RELEASE_SM_LOCK;
-
-    cap->total_allocated += aligned_size / sizeof(StgWord);
-
-    // Unlike compactAllocate(), we do not initialize self here
-    // because the caller is about to overwrite everything anyway
-    self = (StgCompactNFDataBlock*) block->start;
-    self->self = self;
-    self->next = NULL;
-
-    // Init bdescr unconditionally, it doesn't harm to do so for
-    // later blocks anyway
-    initBdescr(block, g0, g0);
-    for ( ; n_blocks > 0; block++, n_blocks--)
-        block->flags = BF_COMPACT;
-
-    return self;
-}
-
 STATIC_INLINE rtsBool
 can_alloc_group_at (void    *addr,
                     StgWord  size)
@@ -901,17 +878,39 @@ compactAllocateBlockAt(Capability            *cap,
 
     aligned_size = BLOCK_ROUND_UP(size);
 
+    // We do not link the new object into the generation ever
+    // - we cannot let the GC know about this object until we're done
+    // importing it and we have fixed up all info tables and stuff
+    //
+    // but we do update n_compact_blocks, otherwise memInventory()
+    // in Sanity will think we have a memory leak, because it compares
+    // the blocks he knows about with the blocks obtained by the
+    // block allocator
+    // (if by chance a memory leak does happen due to a bug somewhere
+    // else, memInventory will also report that all compact blocks
+    // associated with this compact are leaked - but they are not really,
+    // we have a pointer to them and we're not losing track of it, it's
+    // just we can't use the GC until we're done with the import)
+    //
+    // (That btw means that the high level import code must be careful
+    // not to lose the pointer, so don't use the primops directly
+    // unless you know what you're doing!)
+
+    // Other trickery: we pass NULL as first, which means our blocks
+    // are always in generation 0
+    // This is correct because the GC has never seen the blocks so
+    // it had no chance of promoting them
+
 #ifdef USE_STRIPED_ALLOCATOR
     // Sanity check the address before making bogus calls to the
     // block allocator
     if (can_alloc_group_at(addr, aligned_size)) {
-        block = compactDoAllocateBlockAt(cap, addr, aligned_size);
+        block = compactAllocateBlock(cap, aligned_size, addr, NULL, rtsFalse);
     } else {
-        // See above for why this is rtsFalse and not "previous == NULL"
-        block = compactAllocateBlock(cap, aligned_size, rtsFalse);
+        block = compactAllocateBlock(cap, aligned_size, NULL, NULL, rtsFalse);
     }
 #else
-    block = compactAllocateBlock(cap, aligned_size, rtsFalse);
+    block = compactAllocateBlock(cap, aligned_size, NULL, NULL, rtsFalse);
 #endif
 
     if ((P_)block != addr && previous != NULL)
@@ -1180,6 +1179,7 @@ compactFixupPointers(StgCompactNFData *str,
     bd = Bdescr((P_)block);
 
     ACQUIRE_SM_LOCK;
+    ASSERT (bd->gen == g0);
     dbl_link_onto(bd, &g0->compact_objects);
     RELEASE_SM_LOCK;
 
@@ -1298,7 +1298,9 @@ serialize_symbol_table(Capability *cap, StgCompactNFData *str)
     ASSERT (str->symbols == NULL);
     ASSERT (str->symbols_hash != NULL);
 
-    block = compactAllocateBlock(cap, BLOCK_SIZE, rtsFalse);
+    block = compactAllocateBlock(cap, BLOCK_SIZE, NULL,
+                                 compactGetFirstBlock(str), rtsFalse);
+
 
     serial = (P_)((W_)block + sizeof(StgCompactNFDataBlock));
     *serial = str->symbols_serial;
@@ -1327,7 +1329,8 @@ serialize_symbol_table(Capability *cap, StgCompactNFData *str)
         if ((W_)bd->free + reqd > (W_)bd->start + BLOCK_SIZE * bd->blocks) {
             StgCompactNFDataBlock *new_block;
 
-            new_block = compactAllocateBlock(cap, BLOCK_SIZE, rtsFalse);
+            new_block = compactAllocateBlock(cap, BLOCK_SIZE, NULL,
+                                             compactGetFirstBlock(str), rtsFalse);
             block->next = new_block;
             block = new_block;
             bd = Bdescr((P_)block);
