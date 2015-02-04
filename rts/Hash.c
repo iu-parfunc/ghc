@@ -230,13 +230,21 @@ int keysHashTable(HashTable *table, StgWord keys[], int szKeys) {
 }
 
 void forEachHashTable(HashTable *table, ForEachHashFunction fn, void *userdata) {
+    int k = table->kcount;
     int segment;
+
+    if (k == 0)
+        return;
+
     for(segment=0;segment<HDIRSIZE && table->dir[segment];segment+=1) {
         int index;
         for(index=0;index<HSEGSIZE;index+=1) {
             HashList *hl;
             for(hl=table->dir[segment][index];hl;hl=hl->next) {
                 fn(hl->key, hl->data, userdata);
+                k--;
+                if (k == 0)
+                    return;
             }
         }
     }

@@ -284,7 +284,7 @@ compactNew (Capability *cap, StgWord size)
 
     self = firstBlockGetCompact(block);
     SET_INFO((StgClosure*)self, &stg_COMPACT_NFDATA_info);
-    self->totalW = aligned_size / sizeof(StgWord);
+    self->totalDataW = aligned_size / sizeof(StgWord);
     self->autoBlockW = aligned_size / sizeof(StgWord);
     self->nursery = block;
     self->last = block;
@@ -300,6 +300,8 @@ compactNew (Capability *cap, StgWord size)
     bd = Bdescr((P_)block);
     bd->free = (StgPtr)((W_)self + sizeof(StgCompactNFData));
     ASSERT (bd->free == (StgPtr)self + sizeofW(StgCompactNFData));
+
+    self->totalW += bd->blocks * BLOCK_SIZE_W;
 
     return self;
 }
@@ -322,11 +324,13 @@ compactAppendBlock (Capability *cap, StgCompactNFData *str, StgWord aligned_size
     str->last = block;
     if (str->nursery == NULL)
         str->nursery = block;
-    str->totalW += aligned_size / sizeof(StgWord);
+    str->totalDataW += aligned_size / sizeof(StgWord);
 
     bd = Bdescr((P_)block);
     bd->free = (StgPtr)((W_)block + sizeof(StgCompactNFDataBlock));
     ASSERT (bd->free == (StgPtr)block + sizeofW(StgCompactNFDataBlock));
+
+    str->totalW += bd->blocks * BLOCK_SIZE_W;
 
     return block;
 }
@@ -1071,14 +1075,21 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
     bdescr *bd;
     StgCompactNFDataBlock *nursery;
     StgCompactNFDataBlock *last;
+    StgWord totalW;
+    StgWord totalDataW;
 
     // This assignment is not needed but gcc complains without it
     // (it obviously cannot infer that at least a block in the chain
     // has block->owner != NULL)
     last = block;
     nursery = block;
+    totalW = 0;
+    totalDataW = 0;
     do {
         block->self = block;
+
+        bd = Bdescr((P_)block);
+        totalW += bd->blocks * BLOCK_SIZE_W;
 
         // Data blocks have owner != NULL, because they contain
         // GC-able objects, while symbols block have owner == NULL
@@ -1090,12 +1101,12 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
         // (the same block->owner == NULL check happens in fixup_loop()
         // and any_needs_fixup())
         if (block->owner != NULL) {
-            bd = Bdescr((P_)block);
 
             if (bd->free != bd->start)
                 nursery = block;
             last = block;
             block->owner = str;
+            totalDataW += bd->blocks * BLOCK_SIZE_W;
         }
 
         block = block->next;
@@ -1103,6 +1114,8 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
 
     str->nursery = nursery;
     str->last = last;
+    str->totalW = totalW;
+    str->totalDataW = totalDataW;
 
     str->symbols = str->last->next;
     str->symbols_hash = NULL;
@@ -1201,7 +1214,7 @@ build_symbol_table(StgCompactNFData *str, StgCompactNFDataBlock *block)
     StgClosure *q;
 
     bd = Bdescr((P_)block);
-    p = bd->start + sizeofW(StgCompactNFDataBlock);
+    p = (P_) firstBlockGetCompact(block);
     while (p < bd->free) {
         ASSERT (LOOKS_LIKE_CLOSURE_PTR(p));
         q = (StgClosure*)p;
@@ -1225,7 +1238,8 @@ build_symbol_table(StgCompactNFData *str, StgCompactNFDataBlock *block)
         case PRIM:
         case CONSTR_STATIC:
         case CONSTR_NOCAF_STATIC:
-            p += info->layout.payload.ptrs + info->layout.payload.nptrs;
+            p += sizeofW(StgClosure) + info->layout.payload.ptrs +
+                info->layout.payload.nptrs;
             break;
 
         case COMPACT_NFDATA:
@@ -1291,7 +1305,7 @@ serialize_symbol_table(Capability *cap, StgCompactNFData *str)
     StgWord *serial;
     StgCompactNFDataBlock *block;
     bdescr *bd;
-    SymbolTableItem *array;
+    SymbolTableItem *array, *tmp;
     int array_size;
     int i;
 
@@ -1310,13 +1324,15 @@ serialize_symbol_table(Capability *cap, StgCompactNFData *str)
 
     str->symbols = block;
     str->last->next = block;
+    str->totalW += bd->blocks * BLOCK_SIZE_W;
 
     array_size = keyCountHashTable(str->symbols_hash);
     // There is at least the info pointer for the StgCompactNFData
     ASSERT (array_size >= 1);
     array = stgMallocBytes(sizeof(SymbolTableItem) * array_size,
                            "serialize_symbol_table");
-    forEachHashTable(str->symbols_hash, linearize_table, &array);
+    tmp = array;
+    forEachHashTable(str->symbols_hash, linearize_table, &tmp);
 
     qsort(array, array_size, sizeof(SymbolTableItem), symbol_compare);
 
@@ -1334,6 +1350,8 @@ serialize_symbol_table(Capability *cap, StgCompactNFData *str)
             block->next = new_block;
             block = new_block;
             bd = Bdescr((P_)block);
+
+            str->totalW += bd->blocks * BLOCK_SIZE_W;
         }
 
         ASSERT ((W_)bd->free + reqd <= (W_)bd->start + BLOCK_SIZE * bd->blocks);

@@ -1973,7 +1973,8 @@ stg_compactGetNextBlockzh ( P_ str, W_ block )
         return (0::W_, 0::W_);
     }
 
-    ASSERT (StgCompactNFDataBlock_owner(next_block) == str);
+    ASSERT (StgCompactNFDataBlock_owner(next_block) == str ||
+            StgCompactNFDataBlock_owner(next_block) == NULL);
 
     bd = Bdescr(next_block);
     size = bdescr_free(bd) - bdescr_start(bd);

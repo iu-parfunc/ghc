@@ -13,4 +13,8 @@ compact_inc_append
 compact_inc_simple
 compact_inc_nospace
 compact_inc_noshare
-
+compact_autoexpand
+compact_inc_custom
+compact_inc_incremental
+compact_inc_monad
+compact_simple_symbols  
