@@ -403,12 +403,18 @@ evacuate_compact (StgPtr p)
 
     new_gen = &generations[new_gen_no];
 
+    // Note: for speed we only update the generation of the first block here
+    // This means that bdescr of subsequent blocks will think they are in
+    // the wrong generation
+    // (This should not be a problem because there is no code that checks
+    // for that - the only code touching the generation of the block is
+    // in the GC, and that should never see blocks other than the first)
     bd->flags |= BF_EVACUATED;
     initBdescr(bd, new_gen, new_gen->to);
 
     if (new_gen != gen) { ACQUIRE_SPIN_LOCK(&new_gen->sync); }
     dbl_link_onto(bd, &new_gen->live_compact_objects);
-    new_gen->n_live_compact_blocks += bd->blocks;
+    new_gen->n_live_compact_blocks += str->totalW / BLOCK_SIZE_W;
     if (new_gen != gen) { RELEASE_SPIN_LOCK(&new_gen->sync); }
 
     RELEASE_SPIN_LOCK(&gen->sync);
