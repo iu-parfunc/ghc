@@ -733,7 +733,7 @@ compactAllocateBlockAt(Capability            *cap,
         previous->next = block;
 
     bd = Bdescr((P_)block);
-    bd->free = (P_)((W_)bd->free + size);
+    bd->free = (P_)((W_)bd->start + size);
 
     return block;
 }
@@ -860,7 +860,7 @@ fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
             // fall through
 
         default:
-            debugBelch("Invalid non-NFData closure in Compact\n");
+            debugBelch("Invalid non-NFData closure (type %d) in Compact\n", info->type);
             return rtsFalse;
         }
     }

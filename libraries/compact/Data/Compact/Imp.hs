@@ -127,10 +127,19 @@ mkBlockList buffer = go (compactGetFirstBlock# buffer)
     mkBlock :: Addr# -> Word# -> (Ptr a, Word)
     mkBlock block size = (Ptr block, W# size)
 
+-- We MUST mark withCompactPtrsInternal as NOINLINE
+-- Otherwise the compiler will eliminate the call to touch#
+-- causing the Compact# to be potentially GCed too eagerly,
+-- before func had a chance to copy everything into its own
+-- buffers/sockets/whatever
+{-# NOINLINE withCompactPtrsInternal #-}
 withCompactPtrsInternal :: Compact a -> (SerializedCompact a -> IO c) -> IO c
 withCompactPtrsInternal c@(LargeCompact buffer rootAddr) func = do
   let serialized = SerializedCompact (mkBlockList buffer) (Ptr rootAddr)
-  r <- func serialized
+  -- we must be strict, to avoid smart uses of ByteStrict.Lazy that return
+  -- a thunk instead of a ByteString (but the thunk references the Ptr,
+  -- not the Compact#, so it will point to garbage if GC happens)
+  !r <- func serialized
   IO (\s -> case touch# c s of
          s' -> (# s', r #) )
 withCompactPtrsInternal (SmallCompact _) _ = undefined
