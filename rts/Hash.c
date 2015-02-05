@@ -13,6 +13,7 @@
 
 #include "Hash.h"
 #include "RtsUtils.h"
+#include "BuildId.h"
 
 #include <string.h>
 
@@ -111,6 +112,25 @@ compareStr(StgWord key1, StgWord key2)
     return (strcmp((char *)key1, (char *)key2) == 0);
 }
 
+int
+hashBuildId(HashTable *table, const StgWord8 *key)
+{
+    int i;
+    int hash, bucket;
+
+    hash = 0;
+    for (i = 0; i < BUILD_ID_SIZE; i += 4) {
+        hash ^= key[i] << 24 | key[i + 1] << 16 |
+            key[i + 2] << 8 | key[i + 3];
+    }
+
+    bucket = hash & table->mask1;
+
+    if (bucket < table->split)
+        bucket = hash & table->mask2;
+
+    return bucket;
+}
 
 /* -----------------------------------------------------------------------------
  * Allocate a new segment of the dynamically growing hash table.
