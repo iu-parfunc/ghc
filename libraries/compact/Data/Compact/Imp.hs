@@ -217,7 +217,8 @@ compactImport (SerializedCompact ((Ptr firstAddr, W# firstSize):otherBlocks) (Pt
     go _ [] s = (# s #)
     go previous ((Ptr addr, W# size):rest) s =
       case compactAllocateBlockAt# addr size previous s of
-        (# s', block #) -> go block rest s'
+        (# s', block #) -> case fillBlock block size s' of
+          (# s'' #) -> go block rest s''
 
 sanityCheckByteStrings :: SerializedCompact a -> [ByteString.ByteString] -> Bool
 sanityCheckByteStrings (SerializedCompact scl _) bsl = go scl bsl
