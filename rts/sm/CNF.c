@@ -34,6 +34,7 @@
 #include <limits.h>
 #endif
 #include <dlfcn.h>
+#include <endian.h>
 
 // FIXME thread safety?
 // addr -> string
@@ -42,23 +43,7 @@ static HashTable *own_symbol_table;
 static HashTable *foreign_conversion_table;
 
 static int
-build_id_hash (HashTable *table, StgWord key)
-{
-    const StgWord8 *build_id = (StgWord8*)key;
-    int i;
-    int hash;
-
-    hash = 0;
-    for (i = 0; i < BUILD_ID_SIZE; i += 4) {
-        hash ^= build_id[i] << 24 | build_id[i + 1] << 16 |
-            build_id[i + 2] << 8 | build_id[i + 3];
-    }
-
-    return hash;
-}
-
-static int
-build_id_compare (StgWord key1, StgWord key2)
+compareBuildId(StgWord key1, StgWord key2)
 {
     const StgWord8 *build_id1 = (StgWord8*)key1;
     const StgWord8 *build_id2 = (StgWord8*)key2;
@@ -70,7 +55,8 @@ void
 initCompact(void)
 {
     own_symbol_table = allocHashTable();
-    foreign_conversion_table = allocHashTable_(build_id_hash, build_id_compare);
+    foreign_conversion_table = allocHashTable_((HashFunction *)hashBuildId,
+                                               compareBuildId);
 }
 
 static void
@@ -301,7 +287,7 @@ compactNew (Capability *cap, StgWord size)
     bd->free = (StgPtr)((W_)self + sizeof(StgCompactNFData));
     ASSERT (bd->free == (StgPtr)self + sizeofW(StgCompactNFData));
 
-    self->totalW += bd->blocks * BLOCK_SIZE_W;
+    self->totalW = bd->blocks * BLOCK_SIZE_W;
 
     return self;
 }
@@ -1070,27 +1056,16 @@ fixup_loop(StgCompactNFData *str, StgCompactNFDataBlock *block)
 }
 
 static void
-fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
+fixup_early(StgCompactNFData *str, StgCompactNFDataBlock *block)
 {
-    bdescr *bd;
-    StgCompactNFDataBlock *nursery;
     StgCompactNFDataBlock *last;
-    StgWord totalW;
-    StgWord totalDataW;
 
     // This assignment is not needed but gcc complains without it
     // (it obviously cannot infer that at least a block in the chain
     // has block->owner != NULL)
     last = block;
-    nursery = block;
-    totalW = 0;
-    totalDataW = 0;
+
     do {
-        block->self = block;
-
-        bd = Bdescr((P_)block);
-        totalW += bd->blocks * BLOCK_SIZE_W;
-
         // Data blocks have owner != NULL, because they contain
         // GC-able objects, while symbols block have owner == NULL
         // (and in theory we should be able to share them sometimes,
@@ -1101,10 +1076,39 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
         // (the same block->owner == NULL check happens in fixup_loop()
         // and any_needs_fixup())
         if (block->owner != NULL) {
+            last = block;
+        }
 
+        block = block->next;
+    } while(block);
+
+    str->last = last;
+
+    str->symbols = str->last->next;
+    str->symbols_hash = NULL;
+    str->symbols_serial = 0;
+}
+
+static void
+fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
+{
+    StgCompactNFDataBlock *nursery;
+    bdescr *bd;
+    StgWord totalW;
+    StgWord totalDataW;
+
+    nursery = block;
+    totalW = 0;
+    totalDataW = 0;
+    do {
+        block->self = block;
+
+        bd = Bdescr((P_)block);
+        totalW += bd->blocks * BLOCK_SIZE_W;
+
+        if (block->owner != NULL) {
             if (bd->free != bd->start)
                 nursery = block;
-            last = block;
             block->owner = str;
             totalDataW += bd->blocks * BLOCK_SIZE_W;
         }
@@ -1113,13 +1117,8 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
     } while(block);
 
     str->nursery = nursery;
-    str->last = last;
     str->totalW = totalW;
     str->totalDataW = totalDataW;
-
-    str->symbols = str->last->next;
-    str->symbols_hash = NULL;
-    str->symbols_serial = 0;
 }
 
 static StgClosure *
@@ -1149,6 +1148,306 @@ maybe_fixup_internal_pointers (StgCompactNFDataBlock *block,
     return *proot;
 }
 
+static StgWord
+symbol_table_sizeW(StgCompactNFData *str)
+{
+    StgCompactNFDataBlock *block;
+    bdescr *bd;
+    StgWord sizeW;
+
+    block = str->symbols;
+    sizeW = 0;
+    while (block) {
+        bd = Bdescr((P_)block);
+        sizeW += bd->free - (bd->start + sizeofW(StgCompactNFDataBlock));
+        block = block->next;
+    }
+
+    return sizeW;
+}
+
+static StgWord
+alignup8(StgWord w) {
+    return (w + 7) / 8 * 8;
+}
+
+static inline StgWord64 *
+symbol_table_block_begin(StgCompactNFDataBlock *block)
+{
+    StgWord address;
+
+    address = ((W_)block + sizeof(StgCompactNFDataBlock));
+    if (sizeof(StgWord) != sizeof(StgWord64))
+        address = alignup8(address);
+
+    return (StgWord64*)address;
+}
+
+static StgCompactNFDataBlock *
+find_symbol_block_for(StgCompactNFData *str, StgWord *word64_idx)
+{
+    StgCompactNFDataBlock *block;
+    bdescr *bd;
+
+    block = str->symbols;
+    ASSERT (block != NULL);
+    do {
+        StgWord n_words64;
+
+        bd = Bdescr((P_)block);
+        n_words64 = bd->free - (P_)symbol_table_block_begin(block);
+        n_words64 /= sizeof(StgWord64) / sizeof(StgWord);
+
+        if (*word64_idx < n_words64)
+            return block;
+
+        *word64_idx -= n_words64;
+        block = block->next;
+    } while (block);
+
+#ifdef DEBUG
+    barf("index outside the last block");
+#else
+    __builtin_unreachable();
+#endif
+}
+
+static void
+symbol_item_at(StgCompactNFData  *str,
+               StgWord            word64_idx,
+               StgWord           *item_begin,
+               StgWord           *item_end,
+               StgWord64         *address,
+               const char       **name)
+{
+    StgCompactNFDataBlock *block;
+    StgWord64 *symbol_table;
+    bdescr *bd;
+    StgWord64 word;
+    StgWord block_n_words;
+
+    block = find_symbol_block_for(str, &word64_idx);
+
+    bd = Bdescr((P_)block);
+    symbol_table = symbol_table_block_begin(block);
+
+    block_n_words = bd->free - (P_)symbol_table_block_begin(block);
+    block_n_words /= sizeof(StgWord64) / sizeof(StgWord);
+
+    ASSERT (word64_idx < block_n_words);
+
+    // word64_idx points somewhere in the middle of
+    // of a symbol item (which is made of 64 bits of address
+    // followed by the symbol name, 0 padded to 64 bit alignment)
+    // we need to find where symbol item starts, and to do
+    // so we rely on one of the quirks of x86_64: the upper two
+    // bytes of an address are always 0
+    // if word64_idx points inside the name, at least the higher
+    // byte will be not 0, because there cannot be NUL characters
+    // in a string (there is no NUL terminator) and the higher
+    // byte must for sure belong to the string and not to the
+    // padding (this is why big endian is necessary)
+
+    word = be64toh(symbol_table[word64_idx]);
+    while (word >> 48 != 0ULL) {
+        // If the first byte starts with 0, both must start with
+        // 0, because it must be an address!
+        // mask it out and see what happens...
+        if (__builtin_expect(word >> 56 == 0ULL, 0)) {
+            debugBelch("Corrupted symbol table imported (invalid address)");
+            word &= 0xffff0000ffffffffULL;
+            continue;
+        }
+
+        // At the very beginning of the symbol table
+        // we must find an address
+        if (__builtin_expect(word64_idx == 0, 0)) {
+            debugBelch("Corrupted symbol table imported (invalid first entry)");
+            break;
+        }
+
+        word64_idx --;
+        word = be64toh(symbol_table[word64_idx]);
+    }
+
+    *item_begin = word64_idx;
+    *address = word;
+    *name = (const char*)(&symbol_table[word64_idx + 1]);
+    word64_idx += 2;
+
+    if (__builtin_expect(word64_idx > block_n_words, 0)) {
+        debugBelch("Corrupted symbol table imported (address without name)");
+        *item_end = word64_idx;
+        return;
+    }
+
+    while (word64_idx < block_n_words) {
+        word = be64toh(symbol_table[word64_idx]);
+
+        if (word >> 48 == 0ULL)
+            break;
+
+        word64_idx ++;
+    }
+
+    *item_end = word64_idx;
+}
+
+static const char *
+slow_path_lookup_symbol_name(StgCompactNFData *str, void *address)
+{
+    StgWord begin, end;
+    StgWord sizeW, sizeW64;
+
+    sizeW = symbol_table_sizeW(str);
+    // 1 word64 means only the serial is present
+    if (sizeW <= sizeofW(StgWord64))
+        return NULL;
+
+    sizeW64 = sizeW * sizeof(StgWord) / sizeof(StgWord64);
+    begin = 1; // ignore the serial
+    end = sizeW64;
+
+    while (begin < end) {
+        StgWord mid = (begin + end) / 2;
+        StgWord item_begin;
+        StgWord item_end;
+        StgWord64 addr;
+        const char *name;
+
+        symbol_item_at(str, mid, &item_begin, &item_end, &addr, &name);
+
+        if ((StgWord64)address == addr)
+            return name;
+
+        if ((StgWord64)address < addr) {
+            end = item_begin;
+        } else {
+            begin = item_end;
+        }
+    }
+
+    return NULL;
+}
+
+static void *
+slow_path_lookup_symbol(StgCompactNFData *str, void *address)
+{
+    const char *name;
+
+    name = slow_path_lookup_symbol_name(str, address);
+    if (name == NULL)
+        return NULL;
+
+    return dlsym(RTLD_DEFAULT, name);
+}
+
+static void *
+lookup_one_symbol(StgCompactNFData *str, HashTable *table, void *address)
+{
+    void *converted;
+
+    converted = lookupHashTable(table, (StgWord)address);
+    if (converted == NULL) {
+        converted = slow_path_lookup_symbol(str, address);
+        if (converted == NULL)
+            return NULL;
+
+        insertHashTable(table, (StgWord)address, converted);
+    }
+
+    return converted;
+}
+
+static rtsBool
+fixup_one_info_table(StgCompactNFData *str, HashTable *table, StgClosure *q)
+{
+    void *address;
+    void *converted;
+
+    address = (void*) q->header.info;
+    converted = lookup_one_symbol(str, table, address);
+    if (converted == NULL)
+        return rtsFalse;
+
+    q->header.info = address;
+    return rtsTrue;
+}
+
+static rtsBool
+fixup_info_tables(StgCompactNFData *str, HashTable *table, StgCompactNFDataBlock *block)
+{
+    StgInfoTable *info;
+    bdescr *bd;
+    StgPtr p;
+    StgClosure *q;
+
+    bd = Bdescr((P_)block);
+    p = (P_) firstBlockGetCompact(block);
+    while (p < bd->free) {
+        q = (StgClosure*)p;
+        if (!fixup_one_info_table(str, table, q))
+            return rtsFalse;
+        info = get_itbl(q);
+
+        switch (info->type) {
+        case CONSTR_1_0:
+        case CONSTR_0_1:
+            p += sizeofW(StgClosure) + 1;
+            break;
+
+        case CONSTR_2_0:
+        case CONSTR_1_1:
+        case CONSTR_0_2:
+            p += sizeofW(StgClosure) + 2;
+            break;
+
+        case CONSTR:
+        case PRIM:
+        case CONSTR_STATIC:
+        case CONSTR_NOCAF_STATIC:
+            p += sizeofW(StgClosure) + info->layout.payload.ptrs +
+                info->layout.payload.nptrs;
+            break;
+
+        case COMPACT_NFDATA:
+            p += sizeofW(StgCompactNFData);
+            break;
+
+        default:
+            debugBelch("Invalid non-NFData closure in Compact\n");
+            break;
+        }
+    }
+
+    return rtsTrue;
+}
+
+static rtsBool
+fixup_info_tables_loop(StgCompactNFData *str, StgCompactNFDataBlock *block)
+{
+    StgCompactNFDataBlock *next;
+    HashTable *table;
+
+    table = lookupHashTable(foreign_conversion_table, (StgWord)str->build_id);
+    if (table == NULL) {
+        table = allocHashTable();
+        insertHashTable(foreign_conversion_table, (StgWord)str->build_id,
+                        table);
+    }
+
+    next = block;
+    do {
+        block = next;
+        if (!fixup_info_tables(str, table, block))
+            return rtsFalse;
+
+        next = block->next;
+    } while (block != str->last);
+
+    return rtsTrue;
+}
+
 static rtsBool
 maybe_fixup_info_tables (StgCompactNFDataBlock *block,
                          StgCompactNFData      *str)
@@ -1163,10 +1462,7 @@ maybe_fixup_info_tables (StgCompactNFDataBlock *block,
     debugBelch("Binary versions do not match, slow path to adjust"
                " info tables\n");
 
-    // FIXME
-    (void)block;
-
-    return rtsFalse;
+    return fixup_info_tables_loop(str, block);
 }
 
 StgPtr
@@ -1177,6 +1473,8 @@ compactFixupPointers(StgCompactNFData *str,
     bdescr *bd;
 
     block = compactGetFirstBlock(str);
+
+    fixup_early(str, block);
 
     if (maybe_fixup_info_tables(block, str))
         root = maybe_fixup_internal_pointers(block, str, root);
@@ -1294,15 +1592,10 @@ symbol_compare(const void *v1, const void *v2)
     return s1->address - s2->address;
 }
 
-static StgWord
-alignup8(StgWord w) {
-    return (w + 7) / 8 * 8;
-}
-
 static void
 serialize_symbol_table(Capability *cap, StgCompactNFData *str)
 {
-    StgWord *serial;
+    StgWord64 *serial;
     StgCompactNFDataBlock *block;
     bdescr *bd;
     SymbolTableItem *array, *tmp;
@@ -1314,13 +1607,15 @@ serialize_symbol_table(Capability *cap, StgCompactNFData *str)
 
     block = compactAllocateBlock(cap, BLOCK_SIZE, NULL,
                                  compactGetFirstBlock(str), rtsFalse);
+    block->owner = NULL;
+    block->self = block;
+    block->next = NULL;
 
-
-    serial = (P_)((W_)block + sizeof(StgCompactNFDataBlock));
+    serial = symbol_table_block_begin(block);
     *serial = str->symbols_serial;
 
     bd = Bdescr((P_)block);
-    bd->free = serial + 1;
+    bd->free = (P_)(serial + 1);
 
     str->symbols = block;
     str->last->next = block;
@@ -1339,7 +1634,8 @@ serialize_symbol_table(Capability *cap, StgCompactNFData *str)
     for (i = 0; i < array_size; i++) {
         SymbolTableItem *item = &array[i];
         int len = strlen(item->name);
-        StgWord reqd = sizeof(StgWord64) + alignup8(len);
+        StgWord aligned_len = alignup8(len);
+        StgWord reqd = sizeof(StgWord64) + aligned_len;
         StgWord64 *at;
 
         if ((W_)bd->free + reqd > (W_)bd->start + BLOCK_SIZE * bd->blocks) {
@@ -1347,9 +1643,14 @@ serialize_symbol_table(Capability *cap, StgCompactNFData *str)
 
             new_block = compactAllocateBlock(cap, BLOCK_SIZE, NULL,
                                              compactGetFirstBlock(str), rtsFalse);
+            new_block->owner = NULL;
+            new_block->self = block;
+            new_block->next = NULL;
+
             block->next = new_block;
             block = new_block;
             bd = Bdescr((P_)block);
+            bd->free = (P_)symbol_table_block_begin(block);
 
             str->totalW += bd->blocks * BLOCK_SIZE_W;
         }
@@ -1359,10 +1660,25 @@ serialize_symbol_table(Capability *cap, StgCompactNFData *str)
         at = (StgWord64*) bd->free;
         bd->free += reqd / sizeof(StgWord);
 
-        *at = item->address;
+        // Storage format:
+        // we write down the address in big endian
+        // so that it starts with at least 2 zero bytes
+        // (in x86_64, only 48 bits are addressable)
+        // These two bytes are used as NUL terminator
+        // for the previous item, and they are used to find
+        // the beginning of a structure during the binary
+        // search
+
+        *at = htobe64(item->address);
         at++;
+
+        // note: if len is a multiple of 8, there will not
+        // be any 0 padding at the end, and thus no NUL
+        // terminator for the name
+        // we rely on the next item to find the name length
+
         memcpy(at, item->name, len);
-        memset((char*)at + len, 0, alignup8(len)-len);
+        memset((char*)at + len, 0, aligned_len - len);
     }
 
     stgFree(array);
