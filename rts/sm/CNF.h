@@ -58,7 +58,7 @@ INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure)
 
     ASSERT ((object_block->flags & BF_COMPACT) != 0);
 
-    if (object_block->free == 0)
+    if (object_block->blocks == 0)
         head_block = object_block->link;
     else
         head_block = object_block;

@@ -266,6 +266,8 @@ compactNew (Capability *cap, StgWord size)
 
     aligned_size = BLOCK_ROUND_UP(size + sizeof(StgCompactNFDataBlock)
                                   + sizeof(StgCompactNFDataBlock));
+    if (aligned_size >= BLOCK_SIZE * BLOCKS_PER_MBLOCK)
+        aligned_size = BLOCK_SIZE * BLOCKS_PER_MBLOCK;
     block = compactAllocateBlock(cap, aligned_size, NULL, NULL, rtsTrue);
 
     self = firstBlockGetCompact(block);
@@ -327,6 +329,8 @@ compactResize (Capability *cap, StgCompactNFData *str, StgWord new_size)
     StgWord aligned_size;
 
     aligned_size = BLOCK_ROUND_UP(new_size + sizeof(StgCompactNFDataBlock));
+    if (aligned_size >= BLOCK_SIZE * BLOCKS_PER_MBLOCK)
+        aligned_size = BLOCK_SIZE * BLOCKS_PER_MBLOCK;
 
     str->autoBlockW = aligned_size / sizeof(StgWord);
 
@@ -664,7 +668,7 @@ scavenge_loop (Capability *cap, StgCompactNFData *str, StgCompactNFDataBlock *fi
     while (first_block != str->nursery) {
         first_block = first_block->next;
         simple_scavenge_block(cap, str, first_block, hash,
-                              (P_)first_block + sizeof(StgCompactNFDataBlock));
+                              (P_)first_block + sizeofW(StgCompactNFDataBlock));
     }
 }
 
