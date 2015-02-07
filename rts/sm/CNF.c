@@ -601,6 +601,21 @@ simple_evacuate (Capability *cap, StgCompactNFData *str, HashTable *hash, StgClo
 }
 
 static void
+simple_scavenge_mut_arr_ptrs (Capability       *cap,
+                              StgCompactNFData *str,
+                              HashTable        *hash,
+                              StgMutArrPtrs    *a)
+{
+    StgPtr p, q;
+
+    p = (StgPtr)&a->payload[0];
+    q = (StgPtr)&a->payload[a->ptrs];
+    for (; p < q; p++) {
+        simple_evacuate(cap, str, hash, (StgClosure**)p);
+    }
+}
+
+static void
 simple_scavenge_block (Capability *cap, StgCompactNFData *str, StgCompactNFDataBlock *block, HashTable *hash, StgPtr p)
 {
     StgInfoTable *info;
@@ -643,6 +658,25 @@ simple_scavenge_block (Capability *cap, StgCompactNFData *str, StgCompactNFDataB
         case ARR_WORDS:
             p += arr_words_sizeW((StgArrWords*)p);
             break;
+
+        case MUT_ARR_PTRS_FROZEN:
+        case MUT_ARR_PTRS_FROZEN0:
+            simple_scavenge_mut_arr_ptrs((StgMutArrPtrs*)p);
+            p += mut_arr_ptrs_sizeW(a);
+            break;
+
+        case SMALL_MUT_ARR_PTRS_FROZEN:
+        case SMALL_MUT_ARR_PTRS_FROZEN0:
+        {
+            StgPtr end;
+
+            end = (P_)((StgClosure *)p)->payload +
+                ((StgSmallMutArrPtrs*)p)->ptrs;
+            for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
+                simple_evacuate(cap, str, hash, (StgClosure **)p);
+            }
+            break;
+        }
 
         case IND:
         case BLACKHOLE:
@@ -987,6 +1021,22 @@ fixup_one_pointer(StgCompactNFData *str, StgClosure **p)
 }
 
 static rtsBool
+fixup_mut_arr_ptrs (StgCompactNFData *str,
+                    StgMutArrPtrs    *a)
+{
+    StgPtr p, q;
+
+    p = (StgPtr)&a->payload[0];
+    q = (StgPtr)&a->payload[a->ptrs];
+    for (; p < q; p++) {
+        if (!fixup_one_pointer(str, (StgClosure**)p))
+            return rtsFalse;
+    }
+
+    return rtsTrue;
+}
+
+static rtsBool
 fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
 {
     StgInfoTable *info;
@@ -1036,6 +1086,26 @@ fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
         case ARR_WORDS:
             p += arr_words_sizeW((StgArrWords*)p);
             break;
+
+        case MUT_ARR_PTRS_FROZEN:
+        case MUT_ARR_PTRS_FROZEN0:
+            fixup_mut_arr_ptrs(str, (StgMutArrPtrs*)p);
+            p += mut_arr_ptrs_sizeW((StgMutArrPtrs*)p);
+            break;
+
+        case SMALL_MUT_ARR_PTRS_FROZEN:
+        case SMALL_MUT_ARR_PTRS_FROZEN0:
+        {
+            StgPtr end;
+
+            end = (P_)((StgClosure *)p)->payload +
+                ((StgSmallMutArrPtrs*)p)->ptrs;
+            for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
+                if (!fixup_one_pointer(str, (StgClosure **)p))
+                    return rtsFalse;
+            }
+            break;
+        }
 
         case COMPACT_NFDATA:
             if (p == (bd->start + sizeofW(StgCompactNFDataBlock))) {
