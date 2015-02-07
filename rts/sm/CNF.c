@@ -640,6 +640,10 @@ simple_scavenge_block (Capability *cap, StgCompactNFData *str, StgCompactNFDataB
             break;
         }
 
+        case ARR_WORDS:
+            p += arr_words_sizeW((StgArrWords*)p);
+            break;
+
         case IND:
         case BLACKHOLE:
         case IND_STATIC:
@@ -685,6 +689,7 @@ objectIsWHNFData (StgClosure *what)
     case CONSTR_0_2:
     case CONSTR_STATIC:
     case CONSTR_NOCAF_STATIC:
+    case ARR_WORDS:
         return rtsTrue;
 
     case IND:
@@ -768,6 +773,7 @@ adjust_indirections(StgCompactNFData *str, StgClosure *what)
     switch (info->type) {
     case CONSTR_0_1:
     case CONSTR_0_2:
+    case ARR_WORDS:
         break;
 
     case CONSTR_1_1:
@@ -1026,6 +1032,10 @@ fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
             p += info->layout.payload.nptrs;
             break;
         }
+
+        case ARR_WORDS:
+            p += arr_words_sizeW((StgArrWords*)p);
+            break;
 
         case COMPACT_NFDATA:
             if (p == (bd->start + sizeofW(StgCompactNFDataBlock))) {
@@ -1392,36 +1402,7 @@ fixup_info_tables(StgCompactNFData *str, HashTable *table, StgCompactNFDataBlock
         q = (StgClosure*)p;
         if (!fixup_one_info_table(str, table, q))
             return rtsFalse;
-        info = get_itbl(q);
-
-        switch (info->type) {
-        case CONSTR_1_0:
-        case CONSTR_0_1:
-            p += sizeofW(StgClosure) + 1;
-            break;
-
-        case CONSTR_2_0:
-        case CONSTR_1_1:
-        case CONSTR_0_2:
-            p += sizeofW(StgClosure) + 2;
-            break;
-
-        case CONSTR:
-        case PRIM:
-        case CONSTR_STATIC:
-        case CONSTR_NOCAF_STATIC:
-            p += sizeofW(StgClosure) + info->layout.payload.ptrs +
-                info->layout.payload.nptrs;
-            break;
-
-        case COMPACT_NFDATA:
-            p += sizeofW(StgCompactNFData);
-            break;
-
-        default:
-            debugBelch("Invalid non-NFData closure in Compact\n");
-            break;
-        }
+        p += closure_sizeW(q);
     }
 
     return rtsTrue;
@@ -1520,38 +1501,9 @@ build_symbol_table(StgCompactNFData *str, StgCompactNFDataBlock *block)
     while (p < bd->free) {
         ASSERT (LOOKS_LIKE_CLOSURE_PTR(p));
         q = (StgClosure*)p;
-        info = get_itbl(q);
-
         add_one_symbol(str, q);
 
-        switch (info->type) {
-        case CONSTR_1_0:
-        case CONSTR_0_1:
-            p += sizeofW(StgClosure) + 1;
-            break;
-
-        case CONSTR_2_0:
-        case CONSTR_1_1:
-        case CONSTR_0_2:
-            p += sizeofW(StgClosure) + 2;
-            break;
-
-        case CONSTR:
-        case PRIM:
-        case CONSTR_STATIC:
-        case CONSTR_NOCAF_STATIC:
-            p += sizeofW(StgClosure) + info->layout.payload.ptrs +
-                info->layout.payload.nptrs;
-            break;
-
-        case COMPACT_NFDATA:
-            p += sizeofW(StgCompactNFData);
-            break;
-
-        default:
-            debugBelch("Invalid non-NFData closure in Compact\n");
-            break;
-        }
+        p += closure_sizeW(q);
     }
 }
 
