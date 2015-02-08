@@ -661,8 +661,8 @@ simple_scavenge_block (Capability *cap, StgCompactNFData *str, StgCompactNFDataB
 
         case MUT_ARR_PTRS_FROZEN:
         case MUT_ARR_PTRS_FROZEN0:
-            simple_scavenge_mut_arr_ptrs((StgMutArrPtrs*)p);
-            p += mut_arr_ptrs_sizeW(a);
+            simple_scavenge_mut_arr_ptrs(cap, str, hash, (StgMutArrPtrs*)p);
+            p += mut_arr_ptrs_sizeW((StgMutArrPtrs*)p);
             break;
 
         case SMALL_MUT_ARR_PTRS_FROZEN:
@@ -1461,7 +1461,6 @@ fixup_one_info_table(StgCompactNFData *str, HashTable *table, StgClosure *q)
 static rtsBool
 fixup_info_tables(StgCompactNFData *str, HashTable *table, StgCompactNFDataBlock *block)
 {
-    StgInfoTable *info;
     bdescr *bd;
     StgPtr p;
     StgClosure *q;
@@ -1561,7 +1560,6 @@ symbols_get_serial (StgCompactNFDataBlock *block)
 static void
 build_symbol_table(StgCompactNFData *str, StgCompactNFDataBlock *block)
 {
-    StgInfoTable *info;
     bdescr *bd;
     StgPtr p;
     StgClosure *q;
