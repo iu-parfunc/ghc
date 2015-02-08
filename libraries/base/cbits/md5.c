@@ -21,13 +21,13 @@
 #include "rts/Md5.h"
 #include <string.h>
 
-void __hsbase_MD5Init(struct MD5Context *context);
-void __hsbase_MD5Update(struct MD5Context *context, byte const *buf, int len);
-void __hsbase_MD5Final(byte digest[16], struct MD5Context *context);
+void __hsbase_MD5Init(struct StgMD5Context *context);
+void __hsbase_MD5Update(struct StgMD5Context *context, byte const *buf, int len);
+void __hsbase_MD5Final(byte digest[16], struct StgMD5Context *context);
 void __hsbase_MD5Transform(word32 buf[4], word32 const in[16]);
 
 void
-__hsbase_MD5Init(struct MD5Context *ctx)
+__hsbase_MD5Init(struct StgMD5Context *ctx)
 {
         stg_MD5Init(ctx);
 }
@@ -37,7 +37,7 @@ __hsbase_MD5Init(struct MD5Context *ctx)
  * of bytes.
  */
 void
-__hsbase_MD5Update(struct MD5Context *ctx, byte const *buf, int len)
+__hsbase_MD5Update(struct StgMD5Context *ctx, byte const *buf, int len)
 {
         stg_MD5Update(ctx, buf, len);
 }
@@ -47,7 +47,7 @@ __hsbase_MD5Update(struct MD5Context *ctx, byte const *buf, int len)
  * 1 0* (64-bit count of bits processed, MSB-first)
  */
 void
-__hsbase_MD5Final(byte digest[16], struct MD5Context *ctx)
+__hsbase_MD5Final(byte digest[16], struct StgMD5Context *ctx)
 {
         stg_MD5Final(digest, ctx);
 }

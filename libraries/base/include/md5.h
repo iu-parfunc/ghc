@@ -3,20 +3,14 @@
 #define _MD5_H
 
 #include "HsFFI.h"
+#include "rts/Md5.h"
 
 typedef HsWord32 word32;
 typedef HsWord8  byte;
 
-// Keep a copy of the structure here, for configure to compute the size
-struct MD5Context {
-	word32 buf[4];
-	word32 bytes[2];
-	word32 in[16];
-};
-
-void __hsbase_MD5Init(struct MD5Context *context);
-void __hsbase_MD5Update(struct MD5Context *context, byte const *buf, int len);
-void __hsbase_MD5Final(byte digest[16], struct MD5Context *context);
+void __hsbase_MD5Init(struct StgMD5Context *context);
+void __hsbase_MD5Update(struct StgMD5Context *context, byte const *buf, int len);
+void __hsbase_MD5Final(byte digest[16], struct StgMD5Context *context);
 void __hsbase_MD5Transform(word32 buf[4], word32 const in[16]);
 
 #endif /* _MD5_H */

@@ -2,7 +2,7 @@
 #ifndef RTS_MD5_H
 #define RTS_MD5_H
 
-#include "Stg.h"
+#include "stg/Types.h"
 
 typedef StgWord32 word32;
 typedef StgWord8  byte;
