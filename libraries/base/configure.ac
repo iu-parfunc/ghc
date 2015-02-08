@@ -207,8 +207,8 @@ fi
 CFLAGS="-I../../includes $CFLAGS"
 dnl Calling AC_CHECK_TYPE(T) makes AC_CHECK_SIZEOF(T) abort on failure
 dnl instead of considering sizeof(T) as 0.
-AC_CHECK_TYPE([struct MD5Context], [], [], [#include "include/md5.h"])
-AC_CHECK_SIZEOF([struct MD5Context], [], [#include "include/md5.h"])
+AC_CHECK_TYPE([struct StgMD5Context], [], [], [#include "rts/Md5.h"])
+AC_CHECK_SIZEOF([struct StgMD5Context], [], [#include "rts/Md5.h"])
 
 AC_SUBST(EXTRA_LIBS)
 AC_CONFIG_FILES([base.buildinfo])
