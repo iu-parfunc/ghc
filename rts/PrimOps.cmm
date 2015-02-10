@@ -1994,14 +1994,14 @@ stg_compactAllocateBlockAtzh ( W_ block, W_ size, W_ previous )
     return (actual_block);
 }
 
-stg_compactFixupPointerszh ( W_ first_block, W_ root )
+stg_compactFixupPointerszh ( W_ first_block, W_ root, W_ trust_info_tables )
 {
     W_ str;
     P_ gcstr;
     W_ ok;
 
     str = first_block + SIZEOF_StgCompactNFDataBlock::W_;
-    (ok) = ccall compactFixupPointers (str "ptr", root "ptr");
+    (ok) = ccall compactFixupPointers (str "ptr", root "ptr", trust_info_tables);
 
     // Now we can let the GC know about str, because it was linked
     // into the generation list and the book-keeping pointers are
