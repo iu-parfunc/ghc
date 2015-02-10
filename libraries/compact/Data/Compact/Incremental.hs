@@ -47,7 +47,9 @@ module Data.Compact.Incremental (
   SerializedCompact(..),
   withCompactPtrs,
   compactImport,
+  compactImportTrusted,
   compactImportByteStrings,
+  compactImportByteStringsTrusted,
 
   compactInitForSymbols,
   compactBuildSymbolTable,
@@ -72,7 +74,9 @@ import Data.Compact.Imp(Compact(..),
                         SerializedCompact(..),
                         withCompactPtrsInternal,
                         compactImport,
+                        compactImportTrusted,
                         compactImportByteStrings,
+                        compactImportByteStringsTrusted,
                         compactInitForSymbols,
                         compactBuildSymbolTable)
 

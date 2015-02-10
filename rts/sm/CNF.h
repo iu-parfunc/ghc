@@ -47,7 +47,8 @@ StgCompactNFDataBlock *compactAllocateBlockAt(Capability            *cap,
                                               StgWord                size,
                                               StgCompactNFDataBlock *previous);
 StgPtr                 compactFixupPointers  (StgCompactNFData      *str,
-                                              StgClosure            *root);
+                                              StgClosure            *root,
+                                              StgInt                 trust_info_tables);
 
 INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure);
 INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure)
