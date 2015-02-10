@@ -1504,9 +1504,13 @@ fixup_info_tables_loop(StgCompactNFData *str, StgCompactNFDataBlock *block)
 
 static rtsBool
 maybe_fixup_info_tables (StgCompactNFDataBlock *block,
-                         StgCompactNFData      *str)
+                         StgCompactNFData      *str,
+                         rtsBool                trust_info_tables)
 {
     const StgWord8 *build_id;
+
+    if (trust_info_tables)
+        return rtsTrue;
 
     build_id = getBinaryBuildId();
     if (memcmp(str->build_id, build_id, BUILD_ID_SIZE) == 0)
@@ -1521,7 +1525,8 @@ maybe_fixup_info_tables (StgCompactNFDataBlock *block,
 
 StgPtr
 compactFixupPointers(StgCompactNFData *str,
-                     StgClosure       *root)
+                     StgClosure       *root,
+                     StgInt            trust_info_tables)
 {
     StgCompactNFDataBlock *block;
     bdescr *bd;
@@ -1530,7 +1535,7 @@ compactFixupPointers(StgCompactNFData *str,
 
     fixup_early(str, block);
 
-    if (maybe_fixup_info_tables(block, str))
+    if (maybe_fixup_info_tables(block, str, trust_info_tables))
         root = maybe_fixup_internal_pointers(block, str, root);
     else
         root = NULL;

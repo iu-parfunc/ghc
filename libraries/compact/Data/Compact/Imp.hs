@@ -41,7 +41,9 @@ module Data.Compact.Imp(
   SerializedCompact(..),
   withCompactPtrsInternal,
   compactImport,
+  compactImportTrusted,
   compactImportByteStrings,
+  compactImportByteStringsTrusted,
 
   compactInitForSymbols,
   compactBuildSymbolTable,
@@ -156,14 +158,14 @@ withCompactPtrsInternal c@(LargeCompact buffer rootAddr) func = do
          s' -> (# s', r #) )
 withCompactPtrsInternal (SmallCompact _) _ = undefined
 
-fixupPointers :: Addr# -> Addr# -> State# RealWorld -> (# State# RealWorld, Maybe (Compact a) #)
-fixupPointers firstBlock rootAddr s =
-  case compactFixupPointers# firstBlock rootAddr s of
+fixupPointers :: Int# -> Addr# -> Addr# -> State# RealWorld -> (# State# RealWorld, Maybe (Compact a) #)
+fixupPointers trust firstBlock rootAddr s =
+  case compactFixupPointers# firstBlock rootAddr trust s of
     (# s', buffer, adjustedRoot #) ->
       if addrIsNull adjustedRoot then (# s', Nothing #)
       else (# s', Just $ LargeCompact buffer adjustedRoot #)
 
-compactImport :: SerializedCompact a -> (Ptr b -> Word -> IO ()) -> IO (Maybe (Compact a))
+compactImportInternal :: Int# -> SerializedCompact a -> (Ptr b -> Word -> IO ()) -> IO (Maybe (Compact a))
 
 -- what we would like is
 {-
@@ -194,14 +196,14 @@ And therefore we need to do everything with State# explicitly.
 -}
 
 -- just do shut up GHC
-compactImport (SerializedCompact [] _) _ = return Nothing
-compactImport (SerializedCompact ((Ptr firstAddr, W# firstSize):otherBlocks) (Ptr rootAddr)) filler =
+compactImportInternal trust (SerializedCompact [] _) _ = return Nothing
+compactImportInternal trust (SerializedCompact ((Ptr firstAddr, W# firstSize):otherBlocks) (Ptr rootAddr)) filler =
   IO (\s0 -> case compactAllocateBlockAt# firstAddr firstSize nullAddr# s0 of
          (# s1, firstBlock #) ->
            case fillBlock firstBlock firstSize s1 of
              (# s2 #) ->
                case go firstBlock otherBlocks s2 of
-                 (# s3 #) -> fixupPointers firstBlock rootAddr s3 )
+                 (# s3 #) -> fixupPointers trust firstBlock rootAddr s3 )
   where
     -- the additional level of tupling in the result is to make sure that
     -- the cases above are strict, which ensures operations are done in the
@@ -220,6 +222,12 @@ compactImport (SerializedCompact ((Ptr firstAddr, W# firstSize):otherBlocks) (Pt
         (# s', block #) -> case fillBlock block size s' of
           (# s'' #) -> go block rest s''
 
+compactImport :: SerializedCompact a -> (Ptr b -> Word -> IO ()) -> IO (Maybe (Compact a))
+compactImport = compactImportInternal 0#
+
+compactImportTrusted :: SerializedCompact a -> (Ptr b -> Word -> IO ()) -> IO (Maybe (Compact a))
+compactImportTrusted = compactImportInternal 1#
+
 sanityCheckByteStrings :: SerializedCompact a -> [ByteString.ByteString] -> Bool
 sanityCheckByteStrings (SerializedCompact scl _) bsl = go scl bsl
   where
@@ -229,9 +237,9 @@ sanityCheckByteStrings (SerializedCompact scl _) bsl = go scl bsl
     go ((_, size):scs) (bs:bss) =
       fromIntegral size == ByteString.length bs && go scs bss
 
-compactImportByteStrings :: SerializedCompact a -> [ByteString.ByteString] ->
-                          IO (Maybe (Compact a))
-compactImportByteStrings serialized stringList =
+compactImportByteStringsInternal :: Int# -> SerializedCompact a -> [ByteString.ByteString] ->
+                                    IO (Maybe (Compact a))
+compactImportByteStringsInternal trust serialized stringList =
   -- sanity check stringList first - if we throw an exception later we leak
   -- memory!
   if not (sanityCheckByteStrings serialized stringList) then
@@ -246,7 +254,15 @@ compactImportByteStrings serialized stringList =
           withForeignPtr fp $ \from -> do
             copyBytes to (from `plusPtr` off) (fromIntegral size)
           writeIORef state rest
-    compactImport serialized filler
+    compactImportInternal trust serialized filler
+
+compactImportByteStrings :: SerializedCompact a -> [ByteString.ByteString] ->
+                            IO (Maybe (Compact a))
+compactImportByteStrings = compactImportByteStringsInternal 0#
+
+compactImportByteStringsTrusted :: SerializedCompact a -> [ByteString.ByteString] ->
+                                   IO (Maybe (Compact a))
+compactImportByteStringsTrusted = compactImportByteStringsInternal 1#
 
 compactInitForSymbols :: Compact a -> IO ()
 compactInitForSymbols (SmallCompact _) = return ()
