@@ -20,7 +20,8 @@ void              initCompact  (void);
 void              exitCompact  (void);
 
 StgCompactNFData *compactNew   (Capability      *cap,
-                                StgWord          size);
+                                StgWord          size,
+                                StgPtr           addr_hint);
 StgPtr            compactAppend(Capability       *cap,
                                 StgCompactNFData *str,
                                 StgClosure       *what,
