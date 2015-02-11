@@ -30,7 +30,9 @@ module Data.Compact (
   compactGetRoot,
 
   compactNew,
+  compactNewAt,
   compactNewNoShare,
+  compactNewNoShareAt,
   compactNewSmall,
   compactAppend,
   compactAppendSmall,
@@ -54,10 +56,14 @@ import GHC.Prim (Compact#,
                  State#,
                  RealWorld,
                  Int#,
+                 Addr#,
+                 nullAddr#,
                  )
 -- We need to import Word from GHC.Types to see the representation
 -- and to able to access the Word# to pass down the primops
 import GHC.Types (IO(..), Word(..))
+
+import GHC.Ptr (Ptr(..))
 
 import Control.DeepSeq (NFData, force)
 
@@ -85,7 +91,7 @@ compactAppendInternalIO :: NFData a => Int# -> Compact b -> a -> IO (Compact a)
 compactAppendInternalIO share (LargeCompact buffer _) root =
   IO (\s -> compactAppendInternal buffer root share s)
 compactAppendInternalIO share (SmallCompact _) root =
-  compactNewLargeInternal share 4096 root
+  compactNewLargeInternal share nullAddr# 4096 root
 
 compactAppend :: NFData a => Compact b -> a -> IO (Compact a)
 compactAppend = compactAppendInternalIO 1#
@@ -97,21 +103,27 @@ compactAppendSmall :: NFData a => Compact b -> a -> IO (Compact a)
 compactAppendSmall (SmallCompact _) = compactNewSmall
 compactAppendSmall str = compactAppend str
 
-compactNewLargeInternal :: NFData a => Int# -> Word -> a -> IO (Compact a)
-compactNewLargeInternal share (W# size) root =
-  IO (\s -> case compactNew# size s of
+compactNewLargeInternal :: NFData a => Int# -> Addr# -> Word -> a -> IO (Compact a)
+compactNewLargeInternal share addr_hint (W# size) root =
+  IO (\s -> case compactNew# size addr_hint s of
          (# s', buffer #) -> compactAppendInternal buffer root share s' )
 
 compactNew :: NFData a => Word -> a -> IO (Compact a)
-compactNew = compactNewLargeInternal 1#
+compactNew = compactNewLargeInternal 1# nullAddr#
 
 compactNewNoShare :: NFData a => Word -> a -> IO (Compact a)
-compactNewNoShare = compactNewLargeInternal 0#
+compactNewNoShare = compactNewLargeInternal 0# nullAddr#
+
+compactNewAt :: NFData a => Word -> Ptr b -> a -> IO (Compact a)
+compactNewAt size (Ptr addr_hint) = compactNewLargeInternal 1# addr_hint size
+
+compactNewNoShareAt :: NFData a => Word -> Ptr b -> a -> IO (Compact a)
+compactNewNoShareAt size (Ptr addr_hint) = compactNewLargeInternal 0# addr_hint size
 
 compactMakeLarge :: NFData a => Compact a -> IO (Compact a)
 compactMakeLarge c@(LargeCompact _ _) = return c
 compactMakeLarge (SmallCompact root) = do
-  compactNewLargeInternal 0# 4096 root
+  compactNewLargeInternal 0# nullAddr# 4096 root
 
 withCompactPtrs :: NFData a => Compact a -> (SerializedCompact a -> IO c) -> IO c
 withCompactPtrs str func = do
