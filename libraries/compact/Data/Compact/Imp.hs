@@ -66,6 +66,7 @@ import GHC.Prim (Compact#,
                  nullAddr#,
                  eqAddr#,
                  addrToAny#,
+                 anyToAddr#,
                  State#,
                  RealWorld,
                  Int#,
@@ -85,13 +86,11 @@ import Data.IORef(newIORef, readIORef, writeIORef)
 import Foreign.ForeignPtr(withForeignPtr)
 import Foreign.Marshal.Utils(copyBytes)
 
-data Compact a = LargeCompact Compact# Addr# | SmallCompact a
+data Compact a = LargeCompact Compact# a | SmallCompact a
 
 -- | 'compactGetRoot': retrieve the object that was stored in a Compact
 compactGetRoot :: Compact a -> a
-compactGetRoot (LargeCompact _ obj) =
-  case addrToAny# obj of
-    (# a #) -> a
+compactGetRoot (LargeCompact _ obj) = obj
 compactGetRoot (SmallCompact obj) = obj
 
 addrIsNull :: Addr# -> Bool
@@ -111,12 +110,14 @@ compactAppendEvaledInternal :: Compact# -> a -> Int# -> State# RealWorld ->
                                (# State# RealWorld, Compact a #)
 compactAppendEvaledInternal buffer root share s =
   case compactAppend# buffer root share s of
-    (# s', rootAddr #) -> (# s', LargeCompact buffer rootAddr #)
+    (# s', rootAddr #) -> case addrToAny# rootAddr of
+      (# adjustedRoot #) ->  (# s', LargeCompact buffer adjustedRoot #)
 
 compactAppendOneInternal :: Compact b -> a -> IO (Compact a)
 compactAppendOneInternal (LargeCompact buffer _) !val =
   IO (\s -> case compactAppendOne# buffer val s of
-         (# s', rootAddr #) -> (# s', LargeCompact buffer rootAddr #) )
+         (# s', rootAddr #) -> case addrToAny# rootAddr of
+           (# adjustedRoot #) -> (# s', LargeCompact buffer adjustedRoot #) )
 compactAppendOneInternal (SmallCompact _) _ = undefined
 
 data SerializedCompact a = SerializedCompact {
@@ -147,9 +148,10 @@ compactWillHaveSymbols buffer =
 -- buffers/sockets/whatever
 {-# NOINLINE withCompactPtrsInternal #-}
 withCompactPtrsInternal :: Compact a -> (SerializedCompact a -> IO c) -> IO c
-withCompactPtrsInternal c@(LargeCompact buffer rootAddr) func = do
+withCompactPtrsInternal c@(LargeCompact buffer root) func = do
   when (compactWillHaveSymbols buffer) (compactBuildSymbolTable c)
-  let serialized = SerializedCompact (mkBlockList buffer) (Ptr rootAddr)
+  let serialized = case anyToAddr# root of
+        (# rootAddr #) -> SerializedCompact (mkBlockList buffer) (Ptr rootAddr)
   -- we must be strict, to avoid smart uses of ByteStrict.Lazy that return
   -- a thunk instead of a ByteString (but the thunk references the Ptr,
   -- not the Compact#, so it will point to garbage if GC happens)
@@ -163,7 +165,8 @@ fixupPointers trust firstBlock rootAddr s =
   case compactFixupPointers# firstBlock rootAddr trust s of
     (# s', buffer, adjustedRoot #) ->
       if addrIsNull adjustedRoot then (# s', Nothing #)
-      else (# s', Just $ LargeCompact buffer adjustedRoot #)
+      else case addrToAny# adjustedRoot of
+        (# root #) -> (# s', Just $ LargeCompact buffer root #)
 
 compactImportInternal :: Int# -> SerializedCompact a -> (Ptr b -> Word -> IO ()) -> IO (Maybe (Compact a))
 

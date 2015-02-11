@@ -60,7 +60,6 @@ module Data.Compact.Incremental (
 import GHC.Prim (compactNew#,
                  compactContains#,
                  compactContainsAny#,
-                 anyToAddr#,
                  Addr#,
                  nullAddr#,
                  )
@@ -86,15 +85,14 @@ import Data.Compact.Imp(Compact(..),
 
 import Control.DeepSeq (NFData, force)
 
-compactNewEmpty :: Word -> Addr# -> IO (Compact ())
-compactNewEmpty (W# size) addr_hint =
-  -- cheap trick: () is a constant and so Compact () is the empty compact
-  -- and we don't need to append or adjust the address
-  -- (you must make sure to never send this Compact anywhere, otherwise
-  -- it will fail to deserialize because the address is not inside it)
+compactNewEvaled :: Word -> Addr# -> a -> IO (Compact a)
+compactNewEvaled (W# size) addr_hint root =
   IO (\s -> case compactNew# size addr_hint s of
-         (# s', buffer #) -> case anyToAddr# () of
-           (# rootAddr #) -> (# s', LargeCompact buffer rootAddr #) )
+         (# s', buffer #) ->
+           compactAppendEvaledInternal buffer root 0# s)
+
+compactNewEmpty :: Word -> Addr# -> IO (Compact ())
+compactNewEmpty size addr_hint = compactNewEvaled size addr_hint ()
 
 compactNew :: Compactable a => Word -> a -> IO (Compact a)
 compactNew size val = do
@@ -115,8 +113,7 @@ compactAppendEvaled :: Compact b -> a -> IO (Compact a)
 compactAppendEvaled (LargeCompact buffer _) !root =
   IO (\s -> compactAppendEvaledInternal buffer root 0# s)
 compactAppendEvaled (SmallCompact _) !root = do
-  unitStr <- compactNewEmpty 4096 nullAddr#
-  compactAppendEvaled unitStr root
+  compactNewEvaled 4096 nullAddr# root
 
 class Compactable a where
   compact :: Compact b -> a -> IO (Compact a)
@@ -124,8 +121,7 @@ class Compactable a where
 compactAppendRecursively :: Compactable a => Compact b -> a -> IO (Compact a)
 compactAppendRecursively str@(LargeCompact buffer _) !val = do
   if isTrue# (compactContains# buffer val) then
-    case anyToAddr# val of
-      (# rootAddr #) -> return $ LargeCompact buffer rootAddr
+    return $ LargeCompact buffer val
     else if isTrue# (compactContainsAny# val) then
            compactAppendEvaled str val
          else
