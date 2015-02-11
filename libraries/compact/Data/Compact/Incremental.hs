@@ -34,6 +34,7 @@ module Data.Compact.Incremental (
   compactResize,
 
   compactNew,
+  compactNewAt,
   compactNewSmall,
   compactAppendOne,
   compactAppendRecursively,
@@ -60,10 +61,13 @@ import GHC.Prim (compactNew#,
                  compactContains#,
                  compactContainsAny#,
                  anyToAddr#,
+                 Addr#,
+                 nullAddr#,
                  )
 -- We need to import Word from GHC.Types to see the representation
 -- and to able to access the Word# to pass down the primops
 import GHC.Types (IO(..), Word(..), isTrue#)
+import GHC.Ptr (Ptr(..))
 
 import Data.Compact.Imp(Compact(..),
                         compactGetRoot,
@@ -82,19 +86,24 @@ import Data.Compact.Imp(Compact(..),
 
 import Control.DeepSeq (NFData, force)
 
-compactNewEmpty :: Word -> IO (Compact ())
-compactNewEmpty (W# size) =
+compactNewEmpty :: Word -> Addr# -> IO (Compact ())
+compactNewEmpty (W# size) addr_hint =
   -- cheap trick: () is a constant and so Compact () is the empty compact
   -- and we don't need to append or adjust the address
   -- (you must make sure to never send this Compact anywhere, otherwise
   -- it will fail to deserialize because the address is not inside it)
-  IO (\s -> case compactNew# size s of
+  IO (\s -> case compactNew# size addr_hint s of
          (# s', buffer #) -> case anyToAddr# () of
            (# rootAddr #) -> (# s', LargeCompact buffer rootAddr #) )
 
 compactNew :: Compactable a => Word -> a -> IO (Compact a)
 compactNew size val = do
-  unitStr <- compactNewEmpty size
+  unitStr <- compactNewEmpty size nullAddr#
+  compactAppendRecursively unitStr val
+
+compactNewAt :: Compactable a => Word -> Ptr b -> a -> IO (Compact a)
+compactNewAt size (Ptr addr_hint) val = do
+  unitStr <- compactNewEmpty size addr_hint
   compactAppendRecursively unitStr val
 
 -- the small variant of the compactAppend functions is strict in
@@ -106,7 +115,7 @@ compactAppendEvaled :: Compact b -> a -> IO (Compact a)
 compactAppendEvaled (LargeCompact buffer _) !root =
   IO (\s -> compactAppendEvaledInternal buffer root 0# s)
 compactAppendEvaled (SmallCompact _) !root = do
-  unitStr <- compactNewEmpty 4096
+  unitStr <- compactNewEmpty 4096 nullAddr#
   compactAppendEvaled unitStr root
 
 class Compactable a where
