@@ -314,9 +314,9 @@ compactAllocateBlockAtInternal (Capability *cap,
     // Sanity check the address before making bogus calls to the
     // block allocator
     if (can_alloc_group_at(addr, aligned_size))
-        return compactAllocateBlock(cap, aligned_size, addr, NULL, rtsFalse);
+        return compactAllocateBlock(cap, aligned_size, addr, NULL, linkGeneration);
     else
-        return compactAllocateBlock(cap, aligned_size, NULL, NULL, rtsFalse);
+        return compactAllocateBlock(cap, aligned_size, NULL, NULL, linkGeneration);
 }
 
 #else
@@ -327,7 +327,7 @@ compactAllocateBlockAtInternal (Capability *cap,
                                 StgWord     aligned_size,
                                 rtsBool     linkGeneration)
 {
-    return compactAllocateBlock(cap, aligned_size, NULL, NULL, rtsFalse);
+    return compactAllocateBlock(cap, aligned_size, NULL, NULL, linkGeneration);
 }
 
 #endif // USE_STRIPED_ALLOCATOR
