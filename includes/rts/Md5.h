@@ -2,10 +2,10 @@
 #ifndef RTS_MD5_H
 #define RTS_MD5_H
 
-#include "stg/Types.h"
+#include "HsFFI.h"
 
-typedef StgWord32 word32;
-typedef StgWord8  byte;
+typedef HsWord32 word32;
+typedef HsWord8  byte;
 
 struct StgMD5Context {
 	word32 buf[4];
