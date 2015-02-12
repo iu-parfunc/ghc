@@ -73,12 +73,18 @@ exitCompact(void)
     freeHashTable(foreign_conversion_table, build_id_table_free);
 }
 
+typedef enum {
+    ALLOCATE_APPEND,
+    ALLOCATE_NEW,
+    ALLOCATE_IMPORT
+} AllocateOp;
+
 static StgCompactNFDataBlock *
 compactAllocateBlock(Capability            *cap,
                      StgWord                aligned_size,
                      void                  *addr,
                      StgCompactNFDataBlock *first,
-                     rtsBool                linkGeneration)
+                     AllocateOp             operation)
 {
     StgCompactNFDataBlock *self;
     bdescr *block;
@@ -133,12 +139,31 @@ compactAllocateBlock(Capability            *cap,
     ASSERT (addr == NULL);
     block = allocGroup(n_blocks);
 #endif
-    if (linkGeneration) {
+    switch (operation) {
+    case ALLOCATE_NEW:
         ASSERT (first == NULL);
         ASSERT (g == g0);
         dbl_link_onto(block, &g0->compact_objects);
+        g->n_compact_blocks += block->blocks;
+        break;
+
+    case ALLOCATE_IMPORT:
+        ASSERT (first == NULL);
+        ASSERT (g == g0);
+        g->n_compact_blocks_in_import += block->blocks;
+        break;
+
+    case ALLOCATE_APPEND:
+        g->n_compact_blocks += block->blocks;
+        break;
+
+    default:
+#ifdef DEBUG
+        ASSERT(!"code should not be reached");
+#else
+        __builtin_unreachable();
+#endif
     }
-    g->n_compact_blocks += block->blocks;
     RELEASE_SM_LOCK;
 
     cap->total_allocated += aligned_size / sizeof(StgWord);
@@ -230,31 +255,6 @@ countCompactBlocks(bdescr *outer)
     return count;
 }
 
-StgWord
-countAllocdCompactBlocks(bdescr *outer)
-{
-    StgCompactNFDataBlock *block;
-    W_ count;
-
-    count = 0;
-    while (outer) {
-        bdescr *inner;
-
-        block = (StgCompactNFDataBlock*)(outer->start);
-        do {
-            inner = Bdescr((P_)block);
-            ASSERT (inner->flags & BF_COMPACT);
-
-            count += countAllocdBlocksOne(inner);
-            block = block->next;
-        } while(block);
-
-        outer = outer->link;
-    }
-
-    return count;
-}
-
 #ifdef USE_STRIPED_ALLOCATOR
 STATIC_INLINE rtsBool
 can_alloc_group_at (void    *addr,
@@ -284,14 +284,14 @@ static inline StgCompactNFDataBlock *
 compactAllocateBlockAtInternal (Capability *cap,
                                 StgPtr      addr,
                                 StgWord     aligned_size,
-                                rtsBool     linkGeneration)
+                                AllocateOp  operation)
 {
     // Sanity check the address before making bogus calls to the
     // block allocator
     if (can_alloc_group_at(addr, aligned_size))
-        return compactAllocateBlock(cap, aligned_size, addr, NULL, linkGeneration);
+        return compactAllocateBlock(cap, aligned_size, addr, NULL, operation);
     else
-        return compactAllocateBlock(cap, aligned_size, NULL, NULL, linkGeneration);
+        return compactAllocateBlock(cap, aligned_size, NULL, NULL, operation);
 }
 
 #else
@@ -300,9 +300,9 @@ static inline StgCompactNFDataBlock *
 compactAllocateBlockAtInternal (Capability *cap,
                                 StgPtr      addr,
                                 StgWord     aligned_size,
-                                rtsBool     linkGeneration)
+                                AllocateOp  operation)
 {
-    return compactAllocateBlock(cap, aligned_size, NULL, NULL, linkGeneration);
+    return compactAllocateBlock(cap, aligned_size, NULL, NULL, operation);
 }
 
 #endif // USE_STRIPED_ALLOCATOR
@@ -322,9 +322,11 @@ compactNew (Capability *cap, StgWord size, StgPtr addr_hint)
         aligned_size = BLOCK_SIZE * BLOCKS_PER_MBLOCK;
 
     if (addr_hint != NULL)
-        block = compactAllocateBlockAtInternal(cap, addr_hint, aligned_size, rtsTrue);
+        block = compactAllocateBlockAtInternal(cap, addr_hint, aligned_size,
+                                               ALLOCATE_NEW);
     else
-        block = compactAllocateBlock(cap, aligned_size, NULL, NULL, rtsTrue);
+        block = compactAllocateBlock(cap, aligned_size, NULL, NULL,
+                                     ALLOCATE_NEW);
 
     self = firstBlockGetCompact(block);
     SET_INFO((StgClosure*)self, &stg_COMPACT_NFDATA_info);
@@ -357,7 +359,8 @@ compactAppendBlock (Capability *cap, StgCompactNFData *str, StgWord aligned_size
     bdescr *bd;
 
     block = compactAllocateBlock(cap, aligned_size, NULL,
-                                 compactGetFirstBlock(str), rtsFalse);
+                                 compactGetFirstBlock(str),
+                                 ALLOCATE_APPEND);
     block->owner = str;
 
     // The last data block always points to the first symbols block
@@ -961,7 +964,8 @@ compactAllocateBlockAt(Capability            *cap,
     // This is correct because the GC has never seen the blocks so
     // it had no chance of promoting them
 
-    block = compactAllocateBlockAtInternal (cap, addr, aligned_size, rtsFalse);
+    block = compactAllocateBlockAtInternal (cap, addr, aligned_size,
+                                            ALLOCATE_IMPORT);
 
     if ((P_)block != addr && previous != NULL)
         previous->next = block;
@@ -1546,6 +1550,7 @@ compactFixupPointers(StgCompactNFData *str,
 {
     StgCompactNFDataBlock *block;
     bdescr *bd;
+    StgWord total_blocks;
 
     block = compactGetFirstBlock(str);
 
@@ -1564,8 +1569,13 @@ compactFixupPointers(StgCompactNFData *str,
     // etc. know about this object
     bd = Bdescr((P_)block);
 
+    total_blocks = str->totalW / BLOCK_SIZE_W;
+
     ACQUIRE_SM_LOCK;
     ASSERT (bd->gen == g0);
+    ASSERT (g0->n_compact_blocks_in_import >= total_blocks);
+    g0->n_compact_blocks_in_import -= total_blocks;
+    g0->n_compact_blocks += total_blocks;
     dbl_link_onto(bd, &g0->compact_objects);
     RELEASE_SM_LOCK;
 
@@ -1651,7 +1661,8 @@ serialize_symbol_table(Capability *cap, StgCompactNFData *str)
     ASSERT (str->symbols_hash != NULL);
 
     block = compactAllocateBlock(cap, BLOCK_SIZE, NULL,
-                                 compactGetFirstBlock(str), rtsFalse);
+                                 compactGetFirstBlock(str),
+                                 ALLOCATE_APPEND);
     block->owner = NULL;
     block->self = block;
     block->next = NULL;
@@ -1687,7 +1698,8 @@ serialize_symbol_table(Capability *cap, StgCompactNFData *str)
             StgCompactNFDataBlock *new_block;
 
             new_block = compactAllocateBlock(cap, BLOCK_SIZE, NULL,
-                                             compactGetFirstBlock(str), rtsFalse);
+                                             compactGetFirstBlock(str),
+                                             ALLOCATE_APPEND);
             new_block->owner = NULL;
             new_block->self = block;
             new_block->next = NULL;

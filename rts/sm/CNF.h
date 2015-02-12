@@ -41,7 +41,6 @@ void              compactBuildSymbolTable(Capability       *cap,
                                           StgCompactNFData *str);
 
 StgWord           countCompactBlocks(bdescr *outer);
-StgWord           countAllocdCompactBlocks(bdescr *outer);
 
 StgCompactNFDataBlock *compactAllocateBlockAt(Capability            *cap,
                                               StgPtr                 addr,

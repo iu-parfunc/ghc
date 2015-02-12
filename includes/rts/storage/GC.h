@@ -104,6 +104,11 @@ typedef struct generation_ {
                                         // (the second is linked from the
                                         // closure object and so on)
     memcount       n_compact_blocks;    // no. of blocks used by all compacts
+    memcount       n_compact_blocks_in_import; // compact blocks being imported
+                                               // (not known to the GC because
+                                               // potentially invalid, but we
+                                               // need to keep track of the size
+                                               // to avoid assertions in Sanity)
 
     memcount       max_blocks;          // max blocks
 
