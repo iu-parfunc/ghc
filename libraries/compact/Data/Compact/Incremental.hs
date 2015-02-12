@@ -89,7 +89,7 @@ compactNewEvaled :: Word -> Addr# -> a -> IO (Compact a)
 compactNewEvaled (W# size) addr_hint root =
   IO (\s -> case compactNew# size addr_hint s of
          (# s', buffer #) ->
-           compactAppendEvaledInternal buffer root 0# s)
+           compactAppendEvaledInternal buffer root 0# s')
 
 compactNewEmpty :: Word -> Addr# -> IO (Compact ())
 compactNewEmpty size addr_hint = compactNewEvaled size addr_hint ()

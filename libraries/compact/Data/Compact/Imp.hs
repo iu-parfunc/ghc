@@ -199,7 +199,7 @@ And therefore we need to do everything with State# explicitly.
 -}
 
 -- just do shut up GHC
-compactImportInternal trust (SerializedCompact [] _) _ = return Nothing
+compactImportInternal _ (SerializedCompact [] _) _ = return Nothing
 compactImportInternal trust (SerializedCompact ((Ptr firstAddr, W# firstSize):otherBlocks) (Ptr rootAddr)) filler =
   IO (\s0 -> case compactAllocateBlockAt# firstAddr firstSize nullAddr# s0 of
          (# s1, firstBlock #) ->
