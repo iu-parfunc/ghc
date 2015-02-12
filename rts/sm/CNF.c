@@ -753,13 +753,9 @@ scavenge_loop (Capability *cap, StgCompactNFData *str, StgCompactNFDataBlock *fi
     // Scavenge the first block
     simple_scavenge_block(cap, str, first_block, hash, p);
 
-    // Now, if the nursery pointer did not change, we're done,
-    // otherwise we need to scavenge the next block in the chain
-    // we know that the next block was empty at the beginning,
-    // so we need to scavenge it entirely
-    // we also know that it does not contain a StgCompactNFData
-    // because that is only in the absolute first block in the chain
-    while (first_block != str->nursery) {
+    // Note: simple_scavenge_block can change str->last, which
+    // changes this check, in addition to iterating through
+    while (first_block != str->last) {
         first_block = first_block->next;
         simple_scavenge_block(cap, str, first_block, hash,
                               (P_)first_block + sizeofW(StgCompactNFDataBlock));
