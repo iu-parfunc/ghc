@@ -880,8 +880,8 @@ genBlocks (generation *gen)
     ASSERT(countBlocks(gen->large_objects) == gen->n_large_blocks);
     ASSERT(countCompactBlocks(gen->compact_objects) == gen->n_compact_blocks);
     return gen->n_blocks + gen->n_old_blocks +
-            countAllocdBlocks(gen->large_objects) +
-        countAllocdCompactBlocks(gen->compact_objects);
+        countAllocdBlocks(gen->large_objects) +
+        gen->n_compact_blocks + gen->n_compact_blocks_in_import;
 }
 
 void
