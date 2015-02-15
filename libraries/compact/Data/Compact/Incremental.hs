@@ -142,7 +142,7 @@ compactMakeLarge c@(LargeCompact _ _) = return c
 compactMakeLarge (SmallCompact root) = do
   compactNew 4096 root
 
-withCompactPtrs :: Compactable a => Compact a -> (SerializedCompact a -> IO c) -> IO c
+withCompactPtrs :: (Compactable a, NFData c) => Compact a -> (SerializedCompact a -> IO c) -> IO c
 withCompactPtrs str func = do
   largeStr <- compactMakeLarge str
   withCompactPtrsInternal largeStr func
