@@ -167,7 +167,7 @@ void * getFirstMBlock(void)
 
 void * getNextMBlock(void *mblock)
 {
-    return iterateFindMBlock((W_)mblock + BLOCK_SIZE);
+    return iterateFindMBlock((W_)mblock + MBLOCK_SIZE);
 }
 
 static void *getReusableMBlocks(free_list **free_list_head,

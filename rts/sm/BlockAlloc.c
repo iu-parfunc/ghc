@@ -708,6 +708,7 @@ allocGroupAt (void *addr, W_ n)
 
         bd = Bdescr((P_) addr);
         bd->blocks = n;
+        ASSERT (n + (bd - head) <= BLOCKS_PER_MBLOCK);
         initGroup(bd);                   // we know the group will fit
 
         if (head != bd) {
@@ -717,7 +718,7 @@ allocGroupAt (void *addr, W_ n)
         }
 
         rem = bd + n;
-        rem->blocks = BLOCKS_PER_MBLOCK-n;
+        rem->blocks = BLOCKS_PER_MBLOCK - (n + (bd - head));
         initGroup(rem); // init the slop
         freeGroup(rem); // add the slop on to the free list
         goto finish;
@@ -747,13 +748,13 @@ allocGroupAt (void *addr, W_ n)
 
     // Find on which free list this block lives
     blocks = head->blocks;
-    ln = log_2_ceil(blocks);
-
+    ln = log_2(blocks);
     dbl_link_remove(head, &free_lists[chunk][ln]);
+
     if (head != bd) {
         head->blocks = bd - head;
         setup_tail(head);
-        ln = log_2_ceil(head->blocks);
+        ln = log_2(head->blocks);
         dbl_link_onto(head, &free_lists[chunk][ln]);
     }
 
@@ -761,9 +762,12 @@ allocGroupAt (void *addr, W_ n)
         rem = bd + n;
         rem->blocks = blocks - n - (bd - head);
         setup_tail(rem);
-        ln = log_2_ceil(rem->blocks);
+        ln = log_2(rem->blocks);
         dbl_link_onto(rem, &free_lists[chunk][ln]);
     }
+
+    bd->blocks = n;
+    initGroup(bd);
 
 finish:
     IF_DEBUG(sanity, memset(bd->start, 0xaa, bd->blocks * BLOCK_SIZE));
