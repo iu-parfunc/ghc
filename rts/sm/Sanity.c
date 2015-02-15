@@ -493,7 +493,7 @@ checkCompactObjects(bdescr *bd)
     // but they have a StgCompactNFDataBlock at the beginning,
     // before the actual closure
 
-    while (bd != NULL) {
+    for ( ; bd != NULL; bd = bd->link) {
         StgCompactNFDataBlock *block, *last;
         StgCompactNFData *str;
         StgWord totalW;
@@ -502,7 +502,7 @@ checkCompactObjects(bdescr *bd)
 
         block = (StgCompactNFDataBlock*)bd->start;
         str = block->owner;
-        ASSERT ((W_)str == (W_)block + sizeof(StgCompactNFData));
+        ASSERT ((W_)str == (W_)block + sizeof(StgCompactNFDataBlock));
 
         totalW = 0;
         for ( ; block ; block = block->next) {
