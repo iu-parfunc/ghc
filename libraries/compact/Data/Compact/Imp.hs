@@ -85,6 +85,7 @@ import Data.ByteString.Internal(toForeignPtr)
 import Data.IORef(newIORef, readIORef, writeIORef)
 import Foreign.ForeignPtr(withForeignPtr)
 import Foreign.Marshal.Utils(copyBytes)
+import Control.DeepSeq(NFData, force)
 
 data Compact a = LargeCompact Compact# a | SmallCompact a
 
@@ -147,7 +148,7 @@ compactWillHaveSymbols buffer =
 -- before func had a chance to copy everything into its own
 -- buffers/sockets/whatever
 {-# NOINLINE withCompactPtrsInternal #-}
-withCompactPtrsInternal :: Compact a -> (SerializedCompact a -> IO c) -> IO c
+withCompactPtrsInternal :: NFData c => Compact a -> (SerializedCompact a -> IO c) -> IO c
 withCompactPtrsInternal c@(LargeCompact buffer root) func = do
   when (compactWillHaveSymbols buffer) (compactBuildSymbolTable c)
   let serialized = case anyToAddr# root of
@@ -155,8 +156,8 @@ withCompactPtrsInternal c@(LargeCompact buffer root) func = do
   -- we must be strict, to avoid smart uses of ByteStrict.Lazy that return
   -- a thunk instead of a ByteString (but the thunk references the Ptr,
   -- not the Compact#, so it will point to garbage if GC happens)
-  !r <- func serialized
-  IO (\s -> case touch# c s of
+  !r <- fmap force $ func serialized
+  IO (\s -> case touch# buffer s of
          s' -> (# s', r #) )
 withCompactPtrsInternal (SmallCompact _) _ = undefined
 
