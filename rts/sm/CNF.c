@@ -789,7 +789,86 @@ objectIsWHNFData (StgClosure *what)
         return rtsFalse;
     }
 }
+
+static rtsBool
+verify_consistency_block (StgCompactNFData *str, StgCompactNFDataBlock *block)
+{
+    bdescr *bd;
+    StgPtr p;
+    StgInfoTable *info;
+    StgClosure *q;
+
+    p = (P_)firstBlockGetCompact(block);
+    bd = Bdescr((P_)block);
+    while (p < bd->free) {
+        q = (StgClosure*)p;
+
+        if (!LOOKS_LIKE_CLOSURE_PTR(q))
+            return rtsFalse;
+
+        info = get_itbl(q);
+        switch (info->type) {
+        case CONSTR_1_0:
+            if (!object_in_compact(str, UNTAG_CLOSURE(q->payload[0])))
+                return rtsFalse;
+        case CONSTR_0_1:
+            p += sizeofW(StgClosure) + 1;
+            break;
+
+        case CONSTR_2_0:
+            if (!object_in_compact(str, UNTAG_CLOSURE(q->payload[1])))
+                return rtsFalse;
+        case CONSTR_1_1:
+            if (!object_in_compact(str, UNTAG_CLOSURE(q->payload[0])))
+                return rtsFalse;
+        case CONSTR_0_2:
+            p += sizeofW(StgClosure) + 2;
+            break;
+
+        case CONSTR:
+        case PRIM:
+        case CONSTR_STATIC:
+        case CONSTR_NOCAF_STATIC:
+        {
+            nat i;
+
+            for (i = 0; i < info->layout.payload.ptrs; i++)
+                if (!object_in_compact(str, UNTAG_CLOSURE(q->payload[i])))
+                    return rtsFalse;
+
+            p += sizeofW(StgClosure) + info->layout.payload.ptrs +
+                info->layout.payload.nptrs;
+            break;
+        }
+
+        case COMPACT_NFDATA:
+            p += sizeofW(StgCompactNFData);
+            break;
+
+        default:
+            return rtsFalse;
+        }
+    }
+
+    return rtsTrue;
+}
+
+static rtsBool
+verify_consistency_loop (StgCompactNFData *str)
+{
+    StgCompactNFDataBlock *block;
+
+    block = compactGetFirstBlock(str);
+    do {
+        if (!verify_consistency_block(str, block))
+            return rtsFalse;
+        block = block->next;
+    } while (block && block->owner);
+
+    return rtsTrue;
+}
 #endif
+
 
 StgPtr
 compactAppend (Capability *cap, StgCompactNFData *str, StgClosure *what, StgWord share)
@@ -817,6 +896,8 @@ compactAppend (Capability *cap, StgCompactNFData *str, StgClosure *what, StgWord
 
     if (share)
         freeHashTable(hash, NULL);
+
+    ASSERT(verify_consistency_loop(str));
 
     return (StgPtr)tagged_root;
 }
@@ -905,6 +986,8 @@ compactAppendOne (Capability *cap, StgCompactNFData *str, StgClosure *what)
 
     adjust_indirections(str, UNTAG_CLOSURE(tagged_root));
 
+    ASSERT(verify_consistency_loop(str));
+
     return (StgPtr)tagged_root;
 }
 
@@ -992,6 +1075,34 @@ any_needs_fixup(StgCompactNFDataBlock *block)
     return rtsFalse;
 }
 
+#ifdef DEBUG
+static void
+spew_failing_pointer(StgCompactNFData *str, StgWord address)
+{
+    nat i;
+    StgCompactNFDataBlock *block;
+    bdescr *bd;
+    StgWord size;
+
+    debugBelch("Failed to adjust 0x%lx for 0x%lx. Block dump follows...\n",
+               address, (StgWord)str);
+
+    block = compactGetFirstBlock(str);
+    i = 0;
+    do {
+        bd = Bdescr((P_)block);
+        size = (W_)bd->free - (W_)bd->start;
+
+        debugBelch("%d: was 0x%lx-0x%lx, now 0x%lx-0x%lx\n", i,
+                   (W_)block->self, (W_)block->self+size,
+                   (W_)block, (W_)block+size);
+
+        block = block->next;
+        i++;
+    } while(block && block->owner);
+}
+#endif
+
 STATIC_INLINE StgCompactNFDataBlock *
 find_pointer(StgCompactNFData *str, StgClosure *q)
 {
@@ -1012,6 +1123,10 @@ find_pointer(StgCompactNFData *str, StgClosure *q)
 
         block = block->next;
     } while(block);
+
+#ifdef DEBUG
+    spew_failing_pointer(str, address);
+#endif
 
     // We should never get here
     return NULL;
