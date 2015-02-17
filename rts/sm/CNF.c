@@ -628,14 +628,6 @@ simple_evacuate (Capability *cap, StgCompactNFData *str, HashTable *hash, StgClo
     if (object_in_compact(str, from))
         return;
 
-    // This object was evacuated already, return the existing
-    // pointer
-    if (hash != NULL &&
-        (already = lookupHashTable (hash, (StgWord)from))) {
-        *p = TAG_CLOSURE(tag, (StgClosure*)already);
-        return;
-    }
-
     switch (get_itbl(from)->type) {
     case BLACKHOLE:
         // If tag == 0, the indirectee is the TSO that claimed the tag
@@ -660,6 +652,14 @@ simple_evacuate (Capability *cap, StgCompactNFData *str, HashTable *hash, StgClo
         return simple_evacuate(cap, str, hash, p);
 
     default:
+        // This object was evacuated already, return the existing
+        // pointer
+        if (hash != NULL &&
+            (already = lookupHashTable (hash, (StgWord)from))) {
+            *p = TAG_CLOSURE(tag, (StgClosure*)already);
+            return;
+        }
+
         copy_tag(cap, str, hash, p, from, tag);
     }
 }
