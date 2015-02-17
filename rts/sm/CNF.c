@@ -1077,63 +1077,80 @@ any_needs_fixup(StgCompactNFDataBlock *block)
 
 #ifdef DEBUG
 static void
-spew_failing_pointer(StgCompactNFData *str, StgWord address)
+spew_failing_pointer(StgWord *fixup_table, nat count, StgWord address)
 {
     nat i;
+    StgWord key, value;
     StgCompactNFDataBlock *block;
     bdescr *bd;
     StgWord size;
 
-    debugBelch("Failed to adjust 0x%lx for 0x%lx. Block dump follows...\n",
-               address, (StgWord)str);
+    debugBelch("Failed to adjust 0x%lx. Block dump follows...\n",
+               address);
 
-    block = compactGetFirstBlock(str);
-    i = 0;
-    do {
+    for (i  = 0; i < count; i++) {
+        key = fixup_table [2 * i];
+        value = fixup_table [2 * i + 1];
+
+        block = (StgCompactNFDataBlock*)value;
         bd = Bdescr((P_)block);
         size = (W_)bd->free - (W_)bd->start;
 
         debugBelch("%d: was 0x%lx-0x%lx, now 0x%lx-0x%lx\n", i,
-                   (W_)block->self, (W_)block->self+size,
-                   (W_)block, (W_)block+size);
-
-        block = block->next;
-        i++;
-    } while(block && block->owner);
+                   key, key+size, value, value+size);
+    }
 }
 #endif
 
 STATIC_INLINE StgCompactNFDataBlock *
-find_pointer(StgCompactNFData *str, StgClosure *q)
+find_pointer(StgWord *fixup_table, nat count, StgClosure *q)
 {
-    StgCompactNFDataBlock *block;
     StgWord address = (W_)q;
+    nat a, b, c;
+    StgWord key, value;
+    bdescr *bd;
 
-    block = compactGetFirstBlock(str);
-    do {
-        bdescr *bd;
-        StgWord size;
+    a = 0;
+    b = count;
+    while (a < b-1) {
+        c = (a+b)/2;
 
-        bd = Bdescr((P_)block);
-        size = (W_)bd->free - (W_)bd->start;
-        if ((W_)block->self <= address &&
-            address < (W_)block->self + size) {
-            return block;
-        }
+        key = fixup_table[c * 2];
+        value = fixup_table[c * 2 + 1];
 
-        block = block->next;
-    } while(block);
+        if (key > address)
+            b = c;
+        else
+            a = c;
+    }
+
+    // three cases here: 0, 1 or 2 blocks to check
+    for ( ; a < b; a++) {
+        key = fixup_table[a * 2];
+        value = fixup_table[a * 2 + 1];
+
+        if (key > address)
+            goto fail;
+
+        bd = Bdescr((P_)value);
+
+        if (key + bd->blocks * BLOCK_SIZE <= address)
+            goto fail;
+
+        return (StgCompactNFDataBlock*)value;
+    }
+
+ fail:
+    // We should never get here
 
 #ifdef DEBUG
-    spew_failing_pointer(str, address);
+    spew_failing_pointer(fixup_table, count, address);
 #endif
-
-    // We should never get here
     return NULL;
 }
 
 static rtsBool
-fixup_one_pointer(StgCompactNFData *str, StgClosure **p)
+fixup_one_pointer(StgWord *fixup_table, nat count, StgClosure **p)
 {
     StgWord tag;
     StgClosure *q;
@@ -1143,7 +1160,7 @@ fixup_one_pointer(StgCompactNFData *str, StgClosure **p)
     tag = GET_CLOSURE_TAG(q);
     q = UNTAG_CLOSURE(q);
 
-    block = find_pointer(str, q);
+    block = find_pointer(fixup_table, count, q);
     if (block == NULL)
         return rtsFalse;
     if (block == block->self)
@@ -1156,7 +1173,8 @@ fixup_one_pointer(StgCompactNFData *str, StgClosure **p)
 }
 
 static rtsBool
-fixup_mut_arr_ptrs (StgCompactNFData *str,
+fixup_mut_arr_ptrs (StgWord          *fixup_table,
+                    nat               count,
                     StgMutArrPtrs    *a)
 {
     StgPtr p, q;
@@ -1164,7 +1182,7 @@ fixup_mut_arr_ptrs (StgCompactNFData *str,
     p = (StgPtr)&a->payload[0];
     q = (StgPtr)&a->payload[a->ptrs];
     for (; p < q; p++) {
-        if (!fixup_one_pointer(str, (StgClosure**)p))
+        if (!fixup_one_pointer(fixup_table, count, (StgClosure**)p))
             return rtsFalse;
     }
 
@@ -1172,7 +1190,7 @@ fixup_mut_arr_ptrs (StgCompactNFData *str,
 }
 
 static rtsBool
-fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
+fixup_block(StgCompactNFDataBlock *block, StgWord *fixup_table, nat count)
 {
     StgInfoTable *info;
     bdescr *bd;
@@ -1186,17 +1204,17 @@ fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
 
         switch (info->type) {
         case CONSTR_1_0:
-            if (!fixup_one_pointer(str, &((StgClosure*)p)->payload[0]))
+            if (!fixup_one_pointer(fixup_table, count, &((StgClosure*)p)->payload[0]))
                 return rtsFalse;
         case CONSTR_0_1:
             p += sizeofW(StgClosure) + 1;
             break;
 
         case CONSTR_2_0:
-            if (!fixup_one_pointer(str, &((StgClosure*)p)->payload[1]))
+            if (!fixup_one_pointer(fixup_table, count, &((StgClosure*)p)->payload[1]))
                 return rtsFalse;
         case CONSTR_1_1:
-            if (!fixup_one_pointer(str, &((StgClosure*)p)->payload[0]))
+            if (!fixup_one_pointer(fixup_table, count, &((StgClosure*)p)->payload[0]))
                 return rtsFalse;
         case CONSTR_0_2:
             p += sizeofW(StgClosure) + 2;
@@ -1211,7 +1229,7 @@ fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
 
             end = (P_)((StgClosure *)p)->payload + info->layout.payload.ptrs;
             for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
-                if (!fixup_one_pointer(str, (StgClosure **)p))
+                if (!fixup_one_pointer(fixup_table, count, (StgClosure **)p))
                     return rtsFalse;
             }
             p += info->layout.payload.nptrs;
@@ -1224,7 +1242,7 @@ fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
 
         case MUT_ARR_PTRS_FROZEN:
         case MUT_ARR_PTRS_FROZEN0:
-            fixup_mut_arr_ptrs(str, (StgMutArrPtrs*)p);
+            fixup_mut_arr_ptrs(fixup_table, count, (StgMutArrPtrs*)p);
             p += mut_arr_ptrs_sizeW((StgMutArrPtrs*)p);
             break;
 
@@ -1236,7 +1254,7 @@ fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
             end = (P_)((StgClosure *)p)->payload +
                 ((StgSmallMutArrPtrs*)p)->ptrs;
             for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
-                if (!fixup_one_pointer(str, (StgClosure **)p))
+                if (!fixup_one_pointer(fixup_table, count, (StgClosure **)p))
                     return rtsFalse;
             }
             break;
@@ -1261,17 +1279,68 @@ fixup_block(StgCompactNFData *str, StgCompactNFDataBlock *block)
     return rtsTrue;
 }
 
-static rtsBool
-fixup_loop(StgCompactNFData *str, StgCompactNFDataBlock *block)
+static int
+cmp_fixup_table_item (const void *e1, const void *e2)
 {
+    const StgWord *w1 = e1;
+    const StgWord *w2 = e2;
+
+    return *w1 - *w2;
+}
+
+static StgWord *
+build_fixup_table (StgCompactNFDataBlock *block, nat *pcount)
+{
+    nat count;
+    StgCompactNFDataBlock *tmp;
+    StgWord *table;
+
+    count = 0;
+    tmp = block;
     do {
-        if (!fixup_block(str, block))
-            return rtsFalse;
+        count++;
+        tmp = tmp->next;
+    } while(tmp && tmp->owner);
+
+    table = stgMallocBytes(sizeof(StgWord) * 2 * count, "build_fixup_table");
+
+    count = 0;
+    do {
+        table[count * 2] = (W_)block->self;
+        table[count * 2 + 1] = (W_)block;
+        count++;
+        block = block->next;
+    } while(block && block->owner);
+
+    qsort(table, count, sizeof(StgWord) * 2, cmp_fixup_table_item);
+
+    *pcount = count;
+    return table;
+}
+
+static rtsBool
+fixup_loop(StgCompactNFDataBlock *block, StgClosure **proot)
+{
+    StgWord *table;
+    rtsBool ok;
+    nat count;
+
+    table = build_fixup_table (block, &count);
+
+    do {
+        if (!fixup_block(block, table, count)) {
+            ok = rtsFalse;
+            goto out;
+        }
 
         block = block->next;
     } while(block && block->owner);
 
-    return rtsTrue;
+    ok = fixup_one_pointer(table, count, proot);
+
+ out:
+    stgFree(table);
+    return ok;
 }
 
 static void
@@ -1342,7 +1411,6 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
 
 static StgClosure *
 maybe_fixup_internal_pointers (StgCompactNFDataBlock *block,
-                               StgCompactNFData      *str,
                                StgClosure            *root)
 {
     rtsBool ok;
@@ -1358,9 +1426,7 @@ maybe_fixup_internal_pointers (StgCompactNFDataBlock *block,
     // I am PROOT!
     proot = &root;
 
-    ok = fixup_loop(str, block);
-    if (ok)
-        ok = fixup_one_pointer(str, proot);
+    ok = fixup_loop(block, proot);
     if (!ok)
         *proot = NULL;
 
@@ -1672,7 +1738,7 @@ compactFixupPointers(StgCompactNFData *str,
     fixup_early(str, block);
 
     if (maybe_fixup_info_tables(block, str, trust_info_tables))
-        root = maybe_fixup_internal_pointers(block, str, root);
+        root = maybe_fixup_internal_pointers(block, root);
     else
         root = NULL;
 
