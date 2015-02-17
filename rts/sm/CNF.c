@@ -476,8 +476,13 @@ block_is_full (StgCompactNFDataBlock *block)
     top = bd->start + BLOCK_SIZE_W * bd->blocks;
 
     // We consider a block full if we could not fit
-    // an entire closure with 1 payload item
-    sizeW = sizeofW(StgHeader) + 1;
+    // an entire closure with 7 payload items
+    // (this leaves a slop of 64 bytes at most, but
+    // it avoids leaving a block almost empty to fit
+    // a large byte array, while at the same time
+    // it avoids trying to allocate a large closure
+    // in a chain of almost empty blocks)
+    sizeW = sizeofW(StgHeader) + 7;
     return (bd->free + sizeW > top);
 }
 
