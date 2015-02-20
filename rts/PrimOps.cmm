@@ -1903,6 +1903,9 @@ stg_deRefStablePtrzh ( P_ sp )
 stg_compactNewzh ( W_ size, W_ addr_hint )
 {
     P_ str;
+
+    again: MAYBE_GC(again);
+
     ("ptr" str) = ccall compactNew(MyCapability() "ptr", addr_hint "ptr", size);
     return (str);
 }
@@ -1910,6 +1913,9 @@ stg_compactNewzh ( W_ size, W_ addr_hint )
 stg_compactAppendzh ( P_ str, P_ val , W_ share)
 {
     P_ root;
+
+    again: MAYBE_GC(again);
+
      ("ptr" root) = ccall compactAppend(MyCapability() "ptr", str "ptr", val "ptr", share);
     return (root);
 }
@@ -1917,12 +1923,17 @@ stg_compactAppendzh ( P_ str, P_ val , W_ share)
 stg_compactAppendOnezh ( P_ str, P_ val )
 {
     P_ root;
+
+    again: MAYBE_GC(again);
+
     ("ptr" root) = ccall compactAppendOne(MyCapability() "ptr", str "ptr", val "ptr");
     return (root);
 }
 
 stg_compactResizzezh ( P_ str, W_ new_size )
 {
+    again: MAYBE_GC(again);
+
     ccall compactResize(MyCapability() "ptr", str "ptr", new_size);
     return ();
 }
@@ -1986,6 +1997,8 @@ stg_compactGetNextBlockzh ( P_ str, W_ block )
 stg_compactAllocateBlockAtzh ( W_ block, W_ size, W_ previous )
 {
     W_ actual_block;
+
+    again: MAYBE_GC(again);
 
     ("ptr" actual_block) = ccall compactAllocateBlockAt(MyCapability(),
                                                         block "ptr", size,
