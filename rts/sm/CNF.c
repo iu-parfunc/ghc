@@ -145,16 +145,20 @@ compactAllocateBlock(Capability            *cap,
         ASSERT (g == g0);
         dbl_link_onto(block, &g0->compact_objects);
         g->n_compact_blocks += block->blocks;
+        g->n_new_large_words += aligned_size / sizeof(StgWord);
         break;
 
     case ALLOCATE_IMPORT:
         ASSERT (first == NULL);
         ASSERT (g == g0);
         g->n_compact_blocks_in_import += block->blocks;
+        g->n_new_large_words += aligned_size / sizeof(StgWord);
         break;
 
     case ALLOCATE_APPEND:
         g->n_compact_blocks += block->blocks;
+        if (g == g0)
+            g->n_new_large_words += aligned_size / sizeof(StgWord);
         break;
 
     default:
