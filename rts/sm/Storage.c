@@ -1227,7 +1227,8 @@ calcNeeded (rtsBool force_major, memcount *blocks_needed)
         gen = &generations[g];
 
         blocks = gen->n_blocks // or: gen->n_words / BLOCK_SIZE_W (?)
-               + gen->n_large_blocks;
+               + gen->n_large_blocks
+               + gen->n_compact_blocks;
 
         // we need at least this much space
         needed += blocks;
