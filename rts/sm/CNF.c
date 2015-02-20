@@ -732,13 +732,13 @@ simple_scavenge_block (Capability *cap, StgCompactNFData *str, StgCompactNFDataB
         case SMALL_MUT_ARR_PTRS_FROZEN:
         case SMALL_MUT_ARR_PTRS_FROZEN0:
         {
-            StgPtr end;
+            nat i;
+            StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs*)p;
 
-            end = (P_)((StgClosure *)p)->payload +
-                ((StgSmallMutArrPtrs*)p)->ptrs;
-            for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
+            for (i = 0; i < arr->ptrs; i++)
                 simple_evacuate(cap, str, hash, (StgClosure **)p);
-            }
+
+            p += sizeofW(StgSmallMutArrPtrs) + arr->ptrs;
             break;
         }
 
@@ -796,6 +796,22 @@ objectIsWHNFData (StgClosure *what)
 }
 
 static rtsBool
+verify_mut_arr_ptrs (StgCompactNFData *str,
+                     StgMutArrPtrs    *a)
+{
+    StgPtr p, q;
+
+    p = (StgPtr)&a->payload[0];
+    q = (StgPtr)&a->payload[a->ptrs];
+    for (; p < q; p++) {
+        if (!object_in_compact(str, UNTAG_CLOSURE(*(StgClosure**)p)))
+            return rtsFalse;
+    }
+
+    return rtsTrue;
+}
+
+static rtsBool
 verify_consistency_block (StgCompactNFData *str, StgCompactNFDataBlock *block)
 {
     bdescr *bd;
@@ -843,6 +859,31 @@ verify_consistency_block (StgCompactNFData *str, StgCompactNFDataBlock *block)
 
             p += sizeofW(StgClosure) + info->layout.payload.ptrs +
                 info->layout.payload.nptrs;
+            break;
+        }
+
+        case ARR_WORDS:
+            p += arr_words_sizeW((StgArrWords*)p);
+            break;
+
+        case MUT_ARR_PTRS_FROZEN:
+        case MUT_ARR_PTRS_FROZEN0:
+            if (!verify_mut_arr_ptrs(str, (StgMutArrPtrs*)p))
+                return rtsFalse;
+            p += mut_arr_ptrs_sizeW((StgMutArrPtrs*)p);
+            break;
+
+        case SMALL_MUT_ARR_PTRS_FROZEN:
+        case SMALL_MUT_ARR_PTRS_FROZEN0:
+        {
+            nat i;
+            StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs*)p;
+
+            for (i = 0; i < arr->ptrs; i++)
+                if (!object_in_compact(str, UNTAG_CLOSURE(arr->payload[i])))
+                    return rtsFalse;
+
+            p += sizeofW(StgSmallMutArrPtrs) + arr->ptrs;
             break;
         }
 
@@ -1254,14 +1295,16 @@ fixup_block(StgCompactNFDataBlock *block, StgWord *fixup_table, nat count)
         case SMALL_MUT_ARR_PTRS_FROZEN:
         case SMALL_MUT_ARR_PTRS_FROZEN0:
         {
-            StgPtr end;
+            nat i;
+            StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs*)p;
 
-            end = (P_)((StgClosure *)p)->payload +
-                ((StgSmallMutArrPtrs*)p)->ptrs;
-            for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
-                if (!fixup_one_pointer(fixup_table, count, (StgClosure **)p))
+            for (i = 0; i < arr->ptrs; i++) {
+                if (!fixup_one_pointer(fixup_table, count,
+                                       &arr->payload[i]))
                     return rtsFalse;
             }
+
+            p += sizeofW(StgSmallMutArrPtrs) + arr->ptrs;
             break;
         }
 
