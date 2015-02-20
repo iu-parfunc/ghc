@@ -490,17 +490,25 @@ block_is_full (StgCompactNFDataBlock *block)
     return (bd->free + sizeW > top);
 }
 
-static void
+static inline StgWord max(StgWord a, StgWord b)
+{
+    if (a > b)
+        return a;
+    else
+        return b;
+}
+
+static rtsBool
 allocate_loop (Capability *cap, StgCompactNFData *str, StgWord sizeW, StgPtr *at)
 {
-    rtsBool ok;
     StgCompactNFDataBlock *block;
+    StgWord next_size;
 
     // try the nursery first
  retry:
     if (str->nursery != NULL) {
         if (allocate_in_compact(str->nursery, sizeW, at))
-            return;
+            return rtsTrue;
 
         if (block_is_full (str->nursery)) {
             str->nursery = str->nursery->next;
@@ -511,23 +519,16 @@ allocate_loop (Capability *cap, StgCompactNFData *str, StgWord sizeW, StgPtr *at
         block = str->nursery->next;
         while (block != NULL) {
             if (allocate_in_compact(block, sizeW, at))
-                return;
+                return rtsTrue;
 
             block = block->next;
         }
     }
 
-    block = compactAppendBlock(cap, str, str->autoBlockW * sizeof(StgWord));
+    next_size = max(str->autoBlockW * sizeof(StgWord), BLOCK_ROUND_UP(sizeW * sizeof(StgWord)));
+    block = compactAppendBlock(cap, str, next_size);
     ASSERT (str->nursery != NULL);
-    ok = allocate_in_compact(block, sizeW, at);
-#if DEBUG
-    ASSERT (ok);
-#else
-    // tell gcc that ok will be true at this point - this allows GCC
-    // to infer that *at was properly initialized
-    if (!ok)
-        __builtin_unreachable();
-#endif
+    return allocate_in_compact(block, sizeW, at);
 }
 
 static void *
@@ -583,7 +584,10 @@ copy_tag (Capability *cap, StgCompactNFData *str, HashTable *hash, StgClosure **
 
     sizeW = closure_sizeW(from);
 
-    allocate_loop(cap, str, sizeW, &to);
+    if (!allocate_loop(cap, str, sizeW, &to)) {
+        debugBelch("Failed to object in compact, object too large");
+        return;
+    }
 
     // unroll memcpy for small sizes because we can
     // benefit of known alignment
