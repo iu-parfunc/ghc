@@ -699,7 +699,7 @@ allocGroupAt (void *addr, W_ n)
     }
 
     ASSERT (MBLOCK_ROUND_DOWN(addr) ==
-            MBLOCK_ROUND_DOWN((W_)addr + n * BLOCK_SIZE));
+            MBLOCK_ROUND_DOWN((W_)addr + n * BLOCK_SIZE - 1));
 
     // Fast path if the corresponding megablock is not allocated
     if ((head = alloc_mega_group_at(mblock, 1))) {
