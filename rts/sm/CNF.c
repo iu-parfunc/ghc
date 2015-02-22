@@ -273,7 +273,7 @@ can_alloc_group_at (void    *addr,
         if (FIRST_BLOCK(MBLOCK_ROUND_DOWN(addr)) != (void*)addr)
             return rtsFalse;
     } else {
-        if (MBLOCK_ROUND_DOWN(addr) != MBLOCK_ROUND_DOWN((W_)addr + size))
+        if (MBLOCK_ROUND_DOWN(addr) != MBLOCK_ROUND_DOWN((W_)addr + size - 1))
             return rtsFalse;
     }
 
@@ -1815,6 +1815,11 @@ compactFixupPointers(StgCompactNFData *str,
     g0->n_compact_blocks += total_blocks;
     dbl_link_onto(bd, &g0->compact_objects);
     RELEASE_SM_LOCK;
+
+#if DEBUG
+    if (root)
+        verify_consistency_loop(str);
+#endif
 
     return (StgPtr)root;
 }
