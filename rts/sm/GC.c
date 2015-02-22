@@ -1541,7 +1541,8 @@ resize_generations (void)
             words = oldest_gen->n_words;
         }
         live = (words + BLOCK_SIZE_W - 1) / BLOCK_SIZE_W +
-            oldest_gen->n_large_blocks;
+            oldest_gen->n_large_blocks +
+            oldest_gen->n_compact_blocks;
 
         // default max size for all generations except zero
         size = stg_max(live * RtsFlags.GcFlags.oldGenFactor,
