@@ -1906,7 +1906,7 @@ stg_compactNewzh ( W_ size, W_ addr_hint )
 
     again: MAYBE_GC(again);
 
-    ("ptr" str) = ccall compactNew(MyCapability() "ptr", addr_hint "ptr", size);
+    ("ptr" str) = ccall compactNew(MyCapability() "ptr", size, addr_hint "ptr");
     return (str);
 }
 
