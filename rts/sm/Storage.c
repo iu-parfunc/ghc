@@ -1138,12 +1138,12 @@ W_ countOccupied (bdescr *bd)
 
 W_ genLiveWords (generation *gen)
 {
-    return gen->n_words + gen->n_large_words;
+    return gen->n_words + gen->n_large_words + gen->n_compact_blocks * BLOCK_SIZE_W;
 }
 
 W_ genLiveBlocks (generation *gen)
 {
-    return gen->n_blocks + gen->n_large_blocks;
+    return gen->n_blocks + gen->n_large_blocks + gen->n_compact_blocks;
 }
 
 W_ gcThreadLiveWords (nat i, nat g)
