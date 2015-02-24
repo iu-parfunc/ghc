@@ -1938,18 +1938,50 @@ stg_compactResizzezh ( P_ str, W_ new_size )
     return ();
 }
 
+#define MBLOCK_SPACE_BEGIN       (0x10000000000::W_)
+#define MBLOCK_NORMAL_SPACE_SIZE (0x10000000000::W_)
+#define MBLOCK_CHUNK_SIZE        (0x2000000000::W_)
+#define MBLOCK_NUM_CHUNKS        (256::W_)
+#define MBLOCK_SPACE_SIZE        (MBLOCK_CHUNK_SIZE * MBLOCK_NUM_CHUNKS + \
+                                  MBLOCK_NORMAL_SPACE_SIZE)
+
+#define HEAP_ALLOCED(p)          ((p) >= MBLOCK_SPACE_BEGIN && \
+                                  (p) < (MBLOCK_SPACE_BEGIN +  \
+                                         MBLOCK_SPACE_SIZE))
+
 stg_compactContainszh ( P_ str, P_ val )
 {
-    W_ ok;
-    (ok) = ccall compactContains(str "ptr", val "ptr");
-    return (ok);
+    W_ bd;
+    W_ block;
+
+    if (!HEAP_ALLOCED(val)) {
+        return (1);
+    }
+
+    bd = Bdescr(val);
+    if ((bdescr_flags(bd) & BF_COMPACT::I16) == 0::I16) {
+        return (0);
+    }
+
+    if (bdescr_blocks(bd) == 0::I32) {
+        bd = bdescr_link(bd);
+    }
+    ASSERT ((bdescr_flags(bd) & BF_COMPACT::I16) != 0::I16);
+
+    block = bdescr_start(bd);
+    return (StgCompactNFDataBlock_owner(block) == str);
 }
 
 stg_compactContainsAnyzh ( P_ val )
 {
-    W_ ok;
-    (ok) = ccall compactContains(0::W_, val "ptr");
-    return (ok);
+    W_ bd;
+
+    if (!HEAP_ALLOCED(val)) {
+        return (1);
+    }
+
+    bd = Bdescr(val);
+    return ((bdescr_flags(bd) & BF_COMPACT::I16) != 0::I16);
 }
 
 stg_compactGetFirstBlockzh ( P_ str )
