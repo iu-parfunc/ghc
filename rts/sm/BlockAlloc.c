@@ -178,7 +178,7 @@ enum {
 
 #define MBLOCK_BITMAP_SIZE (MBLOCK_CHUNK_SIZE / MBLOCK_SIZE / 8 * 2) // 32 KB
 // If the mblock is read/writable
-static StgInt8 *mblock_bitmaps[MBLOCK_NUM_CHUNKS + 1];
+static StgWord8 *mblock_bitmaps[MBLOCK_NUM_CHUNKS + 1];
 
 STATIC_INLINE StgWord
 mblock_bitmap_get_bit (void *addr, nat chunk)
@@ -207,8 +207,8 @@ mblock_bitmap_get (void *addr, nat i)
     bit = mblock_bitmap_get_bit (addr, chunk);
     bit += 2 * i;
 
-    return (mblock_bitmaps[chunk][bit / 8] >>
-            (bit % 8));
+    return ((mblock_bitmaps[chunk][bit / 8] >>
+             (bit % 8))) & 0x3;
 }
 
 static rtsBool
@@ -636,14 +636,15 @@ alloc_mega_group_at (void *mblock, StgWord mblocks)
                     mblock_total = BLOCKS_TO_MBLOCKS(iter->blocks);
                     mblock_diff = ((W_)MBLOCK_ROUND_DOWN(bd) -
                                    (W_)MBLOCK_ROUND_DOWN(iter)) / MBLOCK_SIZE;
+                    ASSERT (mblock_diff > 0);
                     iter->blocks = MBLOCK_GROUP_BLOCKS(mblock_diff);
+                    bd->link = iter->link;
                     bd->blocks = MBLOCK_GROUP_BLOCKS(mblock_total-mblock_diff);
                     break;
                 } else {
                     iter = iter->link;
                 }
             }
-            ASSERT (prev);
 
             if (bd->blocks > MBLOCK_GROUP_BLOCKS(n)) {
                 // Allocate the first part of this free list item
@@ -651,12 +652,42 @@ alloc_mega_group_at (void *mblock, StgWord mblocks)
                 // middle
                 iter = FIRST_BDESCR ((W_)MBLOCK_ROUND_DOWN(bd) +
                                      n * MBLOCK_SIZE);
-                prev->link = iter;
+                if (prev)
+                    prev->link = iter;
+                else
+                    free_mblock_lists[chunk] = iter;
+
+                if (prev) {
+                    ASSERT (prev->link != prev);
+                    ASSERT (MBLOCK_ROUND_DOWN(prev->link) !=
+                            (StgWord8*)MBLOCK_ROUND_DOWN(prev) +
+                            BLOCKS_TO_MBLOCKS(prev->blocks) * MBLOCK_SIZE);
+                }
+
+                iter->link = bd->link;
                 iter->blocks = MBLOCK_GROUP_BLOCKS(BLOCKS_TO_MBLOCKS(bd->blocks) - n);
+                ASSERT (iter->link != iter);
+                if (iter->link) {
+                    ASSERT (MBLOCK_ROUND_DOWN(iter->link) !=
+                            (StgWord8*)MBLOCK_ROUND_DOWN(iter) +
+                            BLOCKS_TO_MBLOCKS(iter->blocks) * MBLOCK_SIZE);
+                }
+
+                ASSERT(BLOCKS_TO_MBLOCKS(bd->blocks) - n > 0);
                 n = 0;
             } else {
                 // Allocate the entirety of this free list item
-                prev->link = bd->link;
+                if (prev)
+                    prev->link = bd->link;
+                else
+                    free_mblock_lists[chunk] = bd->link;
+
+                if (prev) {
+                    ASSERT (MBLOCK_ROUND_DOWN(prev->link) !=
+                            (StgWord8*)MBLOCK_ROUND_DOWN(prev) +
+                            BLOCKS_TO_MBLOCKS(prev->blocks) * MBLOCK_SIZE);
+                }
+
                 addr = (void*)((W_)addr + BLOCKS_TO_MBLOCKS(bd->blocks) *
                                MBLOCK_SIZE);
                 n -= BLOCKS_TO_MBLOCKS(bd->blocks);
@@ -670,6 +701,8 @@ alloc_mega_group_at (void *mblock, StgWord mblocks)
     mblock_bitmap_mark(mblock, 1, MBLOCK_ALLOCED);
     mblock_bitmap_mark((void*)((W_)mblock + MBLOCK_SIZE),
                        mblocks - 1, MBLOCK_ALLOCED_TAIL);
+
+    IF_DEBUG(sanity, checkFreeListSanity());
 
     return result;
 }
@@ -741,16 +774,18 @@ allocGroupAt (void *addr, W_ n)
             freeGroup(head);
         }
 
-        rem = bd + n;
-        rem->blocks = BLOCKS_PER_MBLOCK - (n + (bd - head));
-        initGroup(rem); // init the slop
-        freeGroup(rem); // add the slop on to the free list
+        if (BLOCKS_PER_MBLOCK - (n + (bd - head)) > 0) {
+            rem = bd + n;
+            rem->blocks = BLOCKS_PER_MBLOCK - (n + (bd - head));
+            initGroup(rem); // init the slop
+            freeGroup(rem); // add the slop on to the free list
+        }
         goto finish;
     }
 
     ASSERT (mblock_bitmap_test_any_alloced(mblock, 1));
 
-    if (mblock_bitmap_get(mblock, 1) == MBLOCK_ALLOCED_TAIL) {
+    if (mblock_bitmap_get(mblock, 0) == MBLOCK_ALLOCED_TAIL) {
         // In the middle of a mega group
         return NULL;
     }
@@ -785,7 +820,10 @@ allocGroupAt (void *addr, W_ n)
     if (head + blocks > bd + n) {
         rem = bd + n;
         rem->blocks = blocks - n - (bd - head);
-        setup_tail(rem);
+        // we must init all the slop afterwards, otherwise it might
+        // keep pointing to the old head
+        initGroup(rem);
+        rem->free = (void*)-1;
         ln = log_2(rem->blocks);
         dbl_link_onto(rem, &free_lists[chunk][ln]);
     }
