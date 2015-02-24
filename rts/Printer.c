@@ -1022,7 +1022,8 @@ char *closure_type_names[] = {
  [ATOMICALLY_FRAME]      = "ATOMICALLY_FRAME",
  [CATCH_RETRY_FRAME]     = "CATCH_RETRY_FRAME",
  [CATCH_STM_FRAME]       = "CATCH_STM_FRAME",
- [WHITEHOLE]             = "WHITEHOLE"
+ [WHITEHOLE]             = "WHITEHOLE",
+ [COMPACT_NFDATA]        = "COMPACT_NFDATA"
 };
 
 char *
