@@ -613,6 +613,7 @@ alloc_mega_group_at (void *mblock, StgWord mblocks)
                 ASSERT (r == addr);
                 addr = (void*)((W_)r + first*MBLOCK_SIZE);
                 n -= first;
+                continue;
             }
 
             bd = FIRST_BDESCR (addr);
@@ -624,7 +625,23 @@ alloc_mega_group_at (void *mblock, StgWord mblocks)
             while (iter != bd) {
                 ASSERT (iter);
                 prev = iter;
-                iter = iter->link;
+
+                // If iter crosses into bd area, we need to split iter
+                if ((W_)MBLOCK_ROUND_DOWN(iter) +
+                    (W_)BLOCKS_TO_MBLOCKS(iter->blocks) * MBLOCK_SIZE >
+                    (W_)MBLOCK_ROUND_DOWN(bd)) {
+                    nat mblock_total;
+                    nat mblock_diff;
+
+                    mblock_total = BLOCKS_TO_MBLOCKS(iter->blocks);
+                    mblock_diff = ((W_)MBLOCK_ROUND_DOWN(bd) -
+                                   (W_)MBLOCK_ROUND_DOWN(iter)) / MBLOCK_SIZE;
+                    iter->blocks = MBLOCK_GROUP_BLOCKS(mblock_diff);
+                    bd->blocks = MBLOCK_GROUP_BLOCKS(mblock_total-mblock_diff);
+                    break;
+                } else {
+                    iter = iter->link;
+                }
             }
             ASSERT (prev);
 
@@ -635,14 +652,14 @@ alloc_mega_group_at (void *mblock, StgWord mblocks)
                 iter = FIRST_BDESCR ((W_)MBLOCK_ROUND_DOWN(bd) +
                                      n * MBLOCK_SIZE);
                 prev->link = iter;
-                iter->blocks = bd->blocks - MBLOCK_GROUP_BLOCKS(n);
+                iter->blocks = MBLOCK_GROUP_BLOCKS(BLOCKS_TO_MBLOCKS(bd->blocks) - n);
                 n = 0;
             } else {
                 // Allocate the entirety of this free list item
-                prev->link = iter->link;
-                addr = (void*)((W_)addr + BLOCKS_TO_MBLOCKS(iter->blocks) *
+                prev->link = bd->link;
+                addr = (void*)((W_)addr + BLOCKS_TO_MBLOCKS(bd->blocks) *
                                MBLOCK_SIZE);
-                n -= BLOCKS_TO_MBLOCKS(iter->blocks);
+                n -= BLOCKS_TO_MBLOCKS(bd->blocks);
             }
         }
     }
