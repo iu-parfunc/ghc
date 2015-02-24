@@ -660,6 +660,13 @@ simple_evacuate (Capability *cap, StgCompactNFData *str, HashTable *hash, StgClo
         return simple_evacuate(cap, str, hash, p);
 
     default:
+        // Static objects are not added to the compact, just pointed to
+        if (!HEAP_ALLOCED(from)) {
+            if (str->symbols_hash != NULL)
+                add_one_symbol(str, from);
+            return;
+        }
+
         // This object was evacuated already, return the existing
         // pointer
         if (hash != NULL &&
@@ -714,8 +721,6 @@ simple_scavenge_block (Capability *cap, StgCompactNFData *str, StgCompactNFDataB
 
         case CONSTR:
         case PRIM:
-        case CONSTR_NOCAF_STATIC:
-        case CONSTR_STATIC:
         {
             StgPtr end;
 
@@ -808,6 +813,13 @@ objectIsWHNFData (StgClosure *what)
 }
 
 static rtsBool
+object_valid_in_compact (StgCompactNFData *str,
+                         StgClosure       *p)
+{
+    return !HEAP_ALLOCED(p) || object_in_compact(str, p);
+}
+
+static rtsBool
 verify_mut_arr_ptrs (StgCompactNFData *str,
                      StgMutArrPtrs    *a)
 {
@@ -816,7 +828,7 @@ verify_mut_arr_ptrs (StgCompactNFData *str,
     p = (StgPtr)&a->payload[0];
     q = (StgPtr)&a->payload[a->ptrs];
     for (; p < q; p++) {
-        if (!object_in_compact(str, UNTAG_CLOSURE(*(StgClosure**)p)))
+        if (!object_valid_in_compact(str, UNTAG_CLOSURE(*(StgClosure**)p)))
             return rtsFalse;
     }
 
@@ -842,17 +854,17 @@ verify_consistency_block (StgCompactNFData *str, StgCompactNFDataBlock *block)
         info = get_itbl(q);
         switch (info->type) {
         case CONSTR_1_0:
-            if (!object_in_compact(str, UNTAG_CLOSURE(q->payload[0])))
+            if (!object_valid_in_compact(str, UNTAG_CLOSURE(q->payload[0])))
                 return rtsFalse;
         case CONSTR_0_1:
             p += sizeofW(StgClosure) + 1;
             break;
 
         case CONSTR_2_0:
-            if (!object_in_compact(str, UNTAG_CLOSURE(q->payload[1])))
+            if (!object_valid_in_compact(str, UNTAG_CLOSURE(q->payload[1])))
                 return rtsFalse;
         case CONSTR_1_1:
-            if (!object_in_compact(str, UNTAG_CLOSURE(q->payload[0])))
+            if (!object_valid_in_compact(str, UNTAG_CLOSURE(q->payload[0])))
                 return rtsFalse;
         case CONSTR_0_2:
             p += sizeofW(StgClosure) + 2;
@@ -866,7 +878,7 @@ verify_consistency_block (StgCompactNFData *str, StgCompactNFDataBlock *block)
             nat i;
 
             for (i = 0; i < info->layout.payload.ptrs; i++)
-                if (!object_in_compact(str, UNTAG_CLOSURE(q->payload[i])))
+                if (!object_valid_in_compact(str, UNTAG_CLOSURE(q->payload[i])))
                     return rtsFalse;
 
             p += sizeofW(StgClosure) + info->layout.payload.ptrs +
@@ -892,7 +904,7 @@ verify_consistency_block (StgCompactNFData *str, StgCompactNFDataBlock *block)
             StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs*)p;
 
             for (i = 0; i < arr->ptrs; i++)
-                if (!object_in_compact(str, UNTAG_CLOSURE(arr->payload[i])))
+                if (!object_valid_in_compact(str, UNTAG_CLOSURE(arr->payload[i])))
                     return rtsFalse;
 
             p += sizeofW(StgSmallMutArrPtrs) + arr->ptrs;
@@ -942,6 +954,9 @@ compactAppend (Capability *cap, StgCompactNFData *str, StgClosure *what, StgWord
     simple_evacuate(cap, str, NULL, &tagged_root);
 
     root = UNTAG_CLOSURE(tagged_root);
+    if (!HEAP_ALLOCED(root))
+        goto out;
+
     evaced_block = objectGetCompactBlock(root);
 
     if (share) {
@@ -955,6 +970,7 @@ compactAppend (Capability *cap, StgCompactNFData *str, StgClosure *what, StgWord
     if (share)
         freeHashTable(hash, NULL);
 
+ out:
     ASSERT(verify_consistency_loop(str));
 
     return (StgPtr)tagged_root;
@@ -980,7 +996,6 @@ maybe_adjust_one_indirection(StgCompactNFData *str, StgClosure **p)
         break;
 
     case IND:
-    case IND_STATIC:
         q = ((StgInd*)q)->indirectee;
         *p = q;
         maybe_adjust_one_indirection(str, p);
@@ -1016,8 +1031,6 @@ adjust_indirections(StgCompactNFData *str, StgClosure *what)
 
     case CONSTR:
     case PRIM:
-    case CONSTR_STATIC:
-    case CONSTR_NOCAF_STATIC:
     {
         nat i;
 
@@ -1042,8 +1055,12 @@ compactAppendOne (Capability *cap, StgCompactNFData *str, StgClosure *what)
     tagged_root = what;
     simple_evacuate(cap, str, NULL, &tagged_root);
 
+    if (!HEAP_ALLOCED(tagged_root))
+        goto out;
+
     adjust_indirections(str, UNTAG_CLOSURE(tagged_root));
 
+ out:
     ASSERT(verify_consistency_loop(str));
 
     return (StgPtr)tagged_root;
@@ -1061,7 +1078,7 @@ compactContains (StgCompactNFData *str, StgPtr what)
     // we can write a Cmm version of HEAP_ALLOCED() and move
     // all this code to PrimOps.cmm - for x86_64 only)
     if (!HEAP_ALLOCED (what))
-        return 0;
+        return 1;
 
     // Note that we don't care about tags, they are eaten
     // away by the Bdescr operation anyway
@@ -1217,6 +1234,9 @@ fixup_one_pointer(StgWord *fixup_table, nat count, StgClosure **p)
     q = *p;
     tag = GET_CLOSURE_TAG(q);
     q = UNTAG_CLOSURE(q);
+
+    if (!HEAP_ALLOCED(q))
+        return rtsTrue;
 
     block = find_pointer(fixup_table, count, q);
     if (block == NULL)
@@ -1720,8 +1740,52 @@ fixup_one_info_table(StgCompactNFData *str, HashTable *table, StgClosure *q)
 }
 
 static rtsBool
+fixup_one_static_ptr(StgCompactNFData *str, HashTable *table, StgClosure **p)
+{
+    StgClosure *q;
+    StgWord tag;
+    void *address;
+    void *converted;
+
+    q = *p;
+    tag = GET_CLOSURE_TAG(q);
+    q = UNTAG_CLOSURE(q);
+
+    if (!HEAP_ALLOCED(q))
+        return rtsTrue;
+
+    address = (void*) q;
+    converted = lookup_one_symbol(str, table, address);
+    if (converted == NULL)
+        return rtsFalse;
+
+    q = converted;
+    *p = TAG_CLOSURE(tag, q);
+    return rtsTrue;
+}
+
+static rtsBool
+fixup_static_ptr_mut_arr_ptrs (StgCompactNFData *str,
+                               HashTable        *table,
+                               StgMutArrPtrs    *a)
+{
+    StgPtr p, q;
+
+    p = (StgPtr)&a->payload[0];
+    q = (StgPtr)&a->payload[a->ptrs];
+    for (; p < q; p++) {
+        if (!fixup_one_static_ptr(str, table, (StgClosure**)p))
+            return rtsFalse;
+    }
+
+    return rtsTrue;
+}
+
+
+static rtsBool
 fixup_info_tables(StgCompactNFData *str, HashTable *table, StgCompactNFDataBlock *block)
 {
+    StgInfoTable *info;
     bdescr *bd;
     StgPtr p;
     StgClosure *q;
@@ -1732,7 +1796,74 @@ fixup_info_tables(StgCompactNFData *str, HashTable *table, StgCompactNFDataBlock
         q = (StgClosure*)p;
         if (!fixup_one_info_table(str, table, q))
             return rtsFalse;
-        p += closure_sizeW(q);
+
+        info = get_itbl(q);
+        switch (info->type) {
+        case CONSTR_1_0:
+            if (!fixup_one_static_ptr(str, table, &((StgClosure*)p)->payload[0]))
+                return rtsFalse;
+        case CONSTR_0_1:
+            p += sizeofW(StgClosure) + 1;
+            break;
+
+        case CONSTR_2_0:
+            if (!fixup_one_static_ptr(str, table, &((StgClosure*)p)->payload[1]))
+                return rtsFalse;
+        case CONSTR_1_1:
+            if (!fixup_one_static_ptr(str, table, &((StgClosure*)p)->payload[0]))
+                return rtsFalse;
+        case CONSTR_0_2:
+            p += sizeofW(StgClosure) + 2;
+            break;
+
+        case CONSTR:
+        case PRIM:
+        {
+            StgPtr end;
+
+            end = (P_)((StgClosure *)p)->payload + info->layout.payload.ptrs;
+            for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
+                if (!fixup_one_static_ptr(str, table, (StgClosure **)p))
+                    return rtsFalse;
+            }
+            p += info->layout.payload.nptrs;
+            break;
+        }
+
+        case ARR_WORDS:
+            p += arr_words_sizeW((StgArrWords*)p);
+            break;
+
+        case MUT_ARR_PTRS_FROZEN:
+        case MUT_ARR_PTRS_FROZEN0:
+            if (!fixup_static_ptr_mut_arr_ptrs(str, table, (StgMutArrPtrs*)p))
+                return rtsFalse;
+            p += mut_arr_ptrs_sizeW((StgMutArrPtrs*)p);
+            break;
+
+        case SMALL_MUT_ARR_PTRS_FROZEN:
+        case SMALL_MUT_ARR_PTRS_FROZEN0:
+        {
+            nat i;
+            StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs*)p;
+
+            for (i = 0; i < arr->ptrs; i++) {
+                if (!fixup_one_static_ptr(str, table, &arr->payload[i]))
+                    return rtsFalse;
+            }
+
+            p += sizeofW(StgSmallMutArrPtrs) + arr->ptrs;
+            break;
+        }
+
+        case COMPACT_NFDATA:
+            p += sizeofW(StgCompactNFData);
+            break;
+
+        default:
+            debugBelch("Invalid non-NFData closure in Compact\n");
+            return rtsFalse;
+        }
     }
 
     return rtsTrue;
@@ -1835,8 +1966,34 @@ symbols_get_serial (StgCompactNFDataBlock *block)
 }
 
 static void
+maybe_add_static_ptr(StgCompactNFData *str, StgClosure **p)
+{
+    StgClosure *q;
+
+    q = *p;
+    q = UNTAG_CLOSURE(q);
+
+    if (!HEAP_ALLOCED(q))
+        add_one_symbol(str, q);
+}
+
+static void
+maybe_add_static_ptr_mut_arr_ptrs (StgCompactNFData *str,
+                                   StgMutArrPtrs    *a)
+{
+    StgPtr p, q;
+
+    p = (StgPtr)&a->payload[0];
+    q = (StgPtr)&a->payload[a->ptrs];
+    for (; p < q; p++)
+        maybe_add_static_ptr(str, (StgClosure**)p);
+}
+
+
+static void
 build_symbol_table(StgCompactNFData *str, StgCompactNFDataBlock *block)
 {
+    StgInfoTable *info;
     bdescr *bd;
     StgPtr p;
     StgClosure *q;
@@ -1848,7 +2005,66 @@ build_symbol_table(StgCompactNFData *str, StgCompactNFDataBlock *block)
         q = (StgClosure*)p;
         add_one_symbol(str, q);
 
-        p += closure_sizeW(q);
+        info = get_itbl(q);
+        switch (info->type) {
+        case CONSTR_1_0:
+            maybe_add_static_ptr(str, &((StgClosure*)p)->payload[0]);
+        case CONSTR_0_1:
+            p += sizeofW(StgClosure) + 1;
+            break;
+
+        case CONSTR_2_0:
+            maybe_add_static_ptr(str, &((StgClosure*)p)->payload[1]);
+        case CONSTR_1_1:
+            maybe_add_static_ptr(str, &((StgClosure*)p)->payload[0]);
+        case CONSTR_0_2:
+            p += sizeofW(StgClosure) + 2;
+            break;
+
+        case CONSTR:
+        case PRIM:
+        {
+            StgPtr end;
+
+            end = (P_)((StgClosure *)p)->payload + info->layout.payload.ptrs;
+            for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
+                maybe_add_static_ptr(str, (StgClosure **)p);
+            }
+            p += info->layout.payload.nptrs;
+            break;
+        }
+
+        case ARR_WORDS:
+            p += arr_words_sizeW((StgArrWords*)p);
+            break;
+
+        case MUT_ARR_PTRS_FROZEN:
+        case MUT_ARR_PTRS_FROZEN0:
+            maybe_add_static_ptr_mut_arr_ptrs(str, (StgMutArrPtrs*)p);
+            p += mut_arr_ptrs_sizeW((StgMutArrPtrs*)p);
+            break;
+
+        case SMALL_MUT_ARR_PTRS_FROZEN:
+        case SMALL_MUT_ARR_PTRS_FROZEN0:
+        {
+            nat i;
+            StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs*)p;
+
+            for (i = 0; i < arr->ptrs; i++)
+                maybe_add_static_ptr(str, &arr->payload[i]);
+
+            p += sizeofW(StgSmallMutArrPtrs) + arr->ptrs;
+            break;
+        }
+
+        case COMPACT_NFDATA:
+            p += sizeofW(StgCompactNFData);
+            break;
+
+        default:
+            debugBelch("Invalid non-NFData closure in Compact\n");
+            return;
+        }
     }
 }
 
