@@ -744,7 +744,7 @@ simple_scavenge_block (Capability *cap, StgCompactNFData *str, StgCompactNFDataB
             StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs*)p;
 
             for (i = 0; i < arr->ptrs; i++)
-                simple_evacuate(cap, str, hash, (StgClosure **)p);
+                simple_evacuate(cap, str, hash, &arr->payload[i]);
 
             p += sizeofW(StgSmallMutArrPtrs) + arr->ptrs;
             break;
@@ -792,6 +792,10 @@ objectIsWHNFData (StgClosure *what)
     case CONSTR_STATIC:
     case CONSTR_NOCAF_STATIC:
     case ARR_WORDS:
+    case MUT_ARR_PTRS_FROZEN:
+    case MUT_ARR_PTRS_FROZEN0:
+    case SMALL_MUT_ARR_PTRS_FROZEN:
+    case SMALL_MUT_ARR_PTRS_FROZEN0:
         return rtsTrue;
 
     case IND:
