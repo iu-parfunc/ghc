@@ -526,6 +526,11 @@ allocate_loop (Capability *cap, StgCompactNFData *str, StgWord sizeW, StgPtr *at
     }
 
     next_size = max(str->autoBlockW * sizeof(StgWord), BLOCK_ROUND_UP(sizeW * sizeof(StgWord)));
+    if (next_size >= BLOCKS_PER_MBLOCK * BLOCK_SIZE)
+        next_size = BLOCKS_PER_MBLOCK * BLOCK_SIZE;
+    if (next_size < sizeW * sizeof(StgWord) + sizeof(StgCompactNFDataBlock))
+        return rtsFalse;
+
     block = compactAppendBlock(cap, str, next_size);
     ASSERT (str->nursery != NULL);
     return allocate_in_compact(block, sizeW, at);
@@ -585,7 +590,7 @@ copy_tag (Capability *cap, StgCompactNFData *str, HashTable *hash, StgClosure **
     sizeW = closure_sizeW(from);
 
     if (!allocate_loop(cap, str, sizeW, &to)) {
-        debugBelch("Failed to object in compact, object too large");
+        barf("Failed to copy object in compact, object too large\n");
         return;
     }
 
@@ -772,6 +777,11 @@ scavenge_loop (Capability *cap, StgCompactNFData *str, StgCompactNFDataBlock *fi
     // Note: simple_scavenge_block can change str->last, which
     // changes this check, in addition to iterating through
     while (first_block != str->last) {
+        // we can't allocate in blocks that were already scavenged
+        // so push the nursery forward
+        if (str->nursery == first_block)
+            str->nursery = str->nursery->next;
+
         first_block = first_block->next;
         simple_scavenge_block(cap, str, first_block, hash,
                               (P_)first_block + sizeofW(StgCompactNFDataBlock));
