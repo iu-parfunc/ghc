@@ -32,6 +32,8 @@ module Data.Compact.Incremental (
   Compact,
   compactGetRoot,
   compactResize,
+  compactContains,
+  compactContainsAny,
 
   compactNew,
   compactNewAt,
@@ -58,20 +60,20 @@ module Data.Compact.Incremental (
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
 import GHC.Prim (compactNew#,
-                 compactContains#,
-                 compactContainsAny#,
                  Addr#,
                  nullAddr#,
                  )
 -- We need to import Word from GHC.Types to see the representation
 -- and to able to access the Word# to pass down the primops
-import GHC.Types (IO(..), Word(..), isTrue#)
+import GHC.Types (IO(..), Word(..))
 import GHC.Ptr (Ptr(..))
 
 import Data.Compact.Imp(Compact(..),
                         compactGetRoot,
                         compactResize,
                         compactNewSmall,
+                        compactContains,
+                        compactContainsAny,
                         compactAppendEvaledInternal,
                         compactAppendOneInternal,
                         SerializedCompact(..),
@@ -120,9 +122,9 @@ class Compactable a where
 
 compactAppendRecursively :: Compactable a => Compact b -> a -> IO (Compact a)
 compactAppendRecursively str@(LargeCompact buffer _) !val = do
-  if isTrue# (compactContains# buffer val) then
+  if compactContains str val then
     return $ LargeCompact buffer val
-    else if isTrue# (compactContainsAny# val) then
+    else if compactContainsAny val then
            compactAppendEvaled str val
          else
            compact str val
