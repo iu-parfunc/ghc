@@ -34,6 +34,8 @@ module Data.Compact.Imp(
   compactGetRoot,
   compactResize,
   compactNewSmall,
+  compactContains,
+  compactContainsAny,
 
   compactAppendEvaledInternal,
   compactAppendOneInternal,
@@ -54,6 +56,8 @@ import GHC.Prim (Compact#,
                  compactAppend#,
                  compactAppendOne#,
                  compactResize#,
+                 compactContains#,
+                 compactContainsAny#,
                  compactGetFirstBlock#,
                  compactGetNextBlock#,
                  compactAllocateBlockAt#,
@@ -93,6 +97,15 @@ data Compact a = LargeCompact Compact# a | SmallCompact a
 compactGetRoot :: Compact a -> a
 compactGetRoot (LargeCompact _ obj) = obj
 compactGetRoot (SmallCompact obj) = obj
+
+compactContains :: Compact b -> a -> Bool
+compactContains (LargeCompact buffer _) val =
+  isTrue# (compactContains# buffer val)
+compactContains _ _ = False
+
+compactContainsAny :: a -> Bool
+compactContainsAny val =
+  isTrue# (compactContainsAny# val)
 
 addrIsNull :: Addr# -> Bool
 addrIsNull addr = isTrue# (nullAddr# `eqAddr#` addr)
