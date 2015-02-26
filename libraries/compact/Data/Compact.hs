@@ -28,6 +28,8 @@
 module Data.Compact (
   Compact,
   compactGetRoot,
+  compactContains,
+  compactContainsAny,
 
   compactNew,
   compactNewAt,
@@ -70,6 +72,8 @@ import Control.DeepSeq (NFData, force)
 import Data.Compact.Imp(Compact(..),
                         compactGetRoot,
                         compactResize,
+                        compactContains,
+                        compactContainsAny,
                         compactNewSmall,
                         compactAppendEvaledInternal,
                         SerializedCompact(..),
