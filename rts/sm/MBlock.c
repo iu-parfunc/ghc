@@ -319,12 +319,30 @@ static void *getCommittedMBlocksAt(char *addr, nat n)
         if (iter->address == address) {
             iter->address = address + size;
             iter->size -= size;
+            if (iter->size == 0) {
+                if (iter->prev)
+                    iter->prev->next = iter->next;
+                else
+                    *free_list_head = iter->next;
+                if (iter->next)
+                    iter->next->prev = iter->prev;
+                stgFree(iter);
+            }
             goto success;
         }
 
         // We want to allocate at the end, cut the free block at the end
         if (iter->address + iter->size == address + size) {
             iter->size -= size;
+            if (iter->size == 0) {
+                if (iter->prev)
+                    iter->prev->next = iter->next;
+                else
+                    *free_list_head = iter->next;
+                if (iter->next)
+                    iter->next->prev = iter->prev;
+                stgFree(iter);
+            }
             goto success;
         }
 
