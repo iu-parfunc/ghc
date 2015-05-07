@@ -167,7 +167,7 @@ dmdAnal' env dmd (App fun (Type ty))
 -- Lots of the other code is there to make this
 -- beautiful, compositional, application rule :-)
 dmdAnal' env dmd (App fun arg)
-  =  -- This case handles value arguments (type args handled above)
+     -- This case handles value arguments (type args handled above)
      -- Crucially, coercions /are/ handled here, because they are
      -- value arguments (Trac #10288)
   = let
