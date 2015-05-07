@@ -36,7 +36,7 @@ library
     CPP
 
   build-depends: rts        == 1.0.*
-  build-depends: ghc-prim   == 0.3.1.0
+  build-depends: ghc-prim   == 0.4.0.0
   build-depends: base       >= 4.8.0 && < 4.9
   build-depends: deepseq    >= 1.4
   build-depends: bytestring >= 0.10.6.0
