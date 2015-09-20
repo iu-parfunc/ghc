@@ -38,7 +38,6 @@ module Data.Compact.Imp(
   compactContainsAny,
 
   compactAppendEvaledInternal,
-  compactAppendOneInternal,
 
   SerializedCompact(..),
   withCompactPtrsInternal,
@@ -54,7 +53,6 @@ module Data.Compact.Imp(
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
 import GHC.Prim (Compact#,
                  compactAppend#,
-                 compactAppendOne#,
                  compactResize#,
                  compactContains#,
                  compactContainsAny#,
@@ -126,13 +124,6 @@ compactAppendEvaledInternal buffer root share s =
   case compactAppend# buffer root share s of
     (# s', rootAddr #) -> case addrToAny# rootAddr of
       (# adjustedRoot #) ->  (# s', LargeCompact buffer adjustedRoot #)
-
-compactAppendOneInternal :: Compact b -> a -> IO (Compact a)
-compactAppendOneInternal (LargeCompact buffer _) !val =
-  IO (\s -> case compactAppendOne# buffer val s of
-         (# s', rootAddr #) -> case addrToAny# rootAddr of
-           (# adjustedRoot #) -> (# s', LargeCompact buffer adjustedRoot #) )
-compactAppendOneInternal (SmallCompact _) _ = undefined
 
 data SerializedCompact a = SerializedCompact {
   serializedCompactGetBlockList :: [(Ptr a, Word)],
