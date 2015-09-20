@@ -1920,16 +1920,6 @@ stg_compactAppendzh ( P_ str, P_ val , W_ share)
     return (root);
 }
 
-stg_compactAppendOnezh ( P_ str, P_ val )
-{
-    P_ root;
-
-    again: MAYBE_GC(again);
-
-    ("ptr" root) = ccall compactAppendOne(MyCapability() "ptr", str "ptr", val "ptr");
-    return (root);
-}
-
 stg_compactResizzezh ( P_ str, W_ new_size )
 {
     again: MAYBE_GC(again);

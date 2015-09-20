@@ -26,9 +26,6 @@ StgPtr            compactAppend(Capability       *cap,
                                 StgCompactNFData *str,
                                 StgClosure       *what,
                                 StgWord           share);
-StgPtr            compactAppendOne(Capability       *cap,
-                                   StgCompactNFData *str,
-                                   StgClosure       *what);
 void              compactResize(Capability       *cap,
                                 StgCompactNFData *str,
                                 StgWord           new_size);

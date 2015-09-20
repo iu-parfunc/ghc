@@ -2430,12 +2430,6 @@ primop  CompactAppendOp "compactAppend#" GenPrimOp
    has_side_effects = True
    out_of_line      = True
 
-primop  CompactAppendOneOp "compactAppendOne#" GenPrimOp
-   Compact# -> a -> State# RealWorld -> (# State# RealWorld, Addr# #)
-   with
-   has_side_effects = True
-   out_of_line      = True
-
 primop  CompactResizeOp "compactResize#" GenPrimOp
    Compact# -> Word# -> State# RealWorld ->
    (# State# RealWorld #)
