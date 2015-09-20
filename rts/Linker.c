@@ -1395,7 +1395,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_compactContainsAnyzh)                           \
       SymI_HasProto(stg_compactGetFirstBlockzh)                         \
       SymI_HasProto(stg_compactGetNextBlockzh)                          \
-      SymI_HasProto(stg_compactAllocateBlockzh)                         \
+      SymI_HasProto(stg_compactAllocateBlockAtzh)                       \
       SymI_HasProto(stg_compactFixupPointerszh)                         \
       SymI_HasProto(large_alloc_lim)                                    \
       SymI_HasProto(g0)                                                 \
