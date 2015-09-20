@@ -20,8 +20,7 @@ void              initCompact  (void);
 void              exitCompact  (void);
 
 StgCompactNFData *compactNew   (Capability      *cap,
-                                StgWord          size,
-                                StgPtr           addr_hint);
+                                StgWord          size);
 StgPtr            compactAppend(Capability       *cap,
                                 StgCompactNFData *str,
                                 StgClosure       *what,
@@ -36,12 +35,11 @@ StgWord           compactContains(StgCompactNFData *str,
 
 StgWord           countCompactBlocks(bdescr *outer);
 
-StgCompactNFDataBlock *compactAllocateBlockAt(Capability            *cap,
-                                              StgPtr                 addr,
-                                              StgWord                size,
-                                              StgCompactNFDataBlock *previous);
-StgPtr                 compactFixupPointers  (StgCompactNFData      *str,
-                                              StgClosure            *root);
+StgCompactNFDataBlock *compactAllocateBlock(Capability            *cap,
+                                            StgWord                size,
+                                            StgCompactNFDataBlock *previous);
+StgPtr                 compactFixupPointers(StgCompactNFData      *str,
+                                            StgClosure            *root);
 
 INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure);
 INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure)
