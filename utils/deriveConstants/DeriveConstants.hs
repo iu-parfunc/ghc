@@ -546,14 +546,10 @@ wanteds = concat
           ,closureField C "MessageBlackHole" "bh"
 
           ,closureSize  C "StgCompactNFData"
-          ,closureField C "StgCompactNFData" "build_id"
           ,closureField C "StgCompactNFData" "totalW"
           ,closureField C "StgCompactNFData" "autoBlockW"
           ,closureField C "StgCompactNFData" "nursery"
           ,closureField C "StgCompactNFData" "last"
-          ,closureField C "StgCompactNFData" "symbols"
-          ,closureField C "StgCompactNFData" "symbols_hash"
-          ,closureField C "StgCompactNFData" "symbols_serial"
 
           ,structSize   C "StgCompactNFDataBlock"
           ,structField  C "StgCompactNFDataBlock" "self"

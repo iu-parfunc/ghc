@@ -47,9 +47,6 @@ module Data.Compact (
   compactImportTrusted,
   compactImportByteStrings,
   compactImportByteStringsTrusted,
-
-  compactInitForSymbols,
-  compactBuildSymbolTable,
   ) where
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
@@ -81,9 +78,7 @@ import Data.Compact.Imp(Compact(..),
                         compactImport,
                         compactImportTrusted,
                         compactImportByteStrings,
-                        compactImportByteStringsTrusted,
-                        compactInitForSymbols,
-                        compactBuildSymbolTable)
+                        compactImportByteStringsTrusted)
 
 compactAppendInternal :: NFData a => Compact# -> a -> Int# -> State# RealWorld ->
                         (# State# RealWorld, Compact a #)
