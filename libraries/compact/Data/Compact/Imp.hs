@@ -33,7 +33,6 @@ module Data.Compact.Imp(
   Compact(..),
   compactGetRoot,
   compactResize,
-  compactNewSmall,
   compactContains,
   compactContainsAny,
 
@@ -83,15 +82,14 @@ import Foreign.ForeignPtr(withForeignPtr)
 import Foreign.Marshal.Utils(copyBytes)
 import Control.DeepSeq(NFData, force)
 
-data Compact a = LargeCompact Compact# a | SmallCompact a
+data Compact a = Compact Compact# a
 
 -- | 'compactGetRoot': retrieve the object that was stored in a Compact
 compactGetRoot :: Compact a -> a
-compactGetRoot (LargeCompact _ obj) = obj
-compactGetRoot (SmallCompact obj) = obj
+compactGetRoot (Compact _ obj) = obj
 
 compactContains :: Compact b -> a -> Bool
-compactContains (LargeCompact buffer _) val =
+compactContains (Compact buffer _) val =
   isTrue# (compactContains# buffer val)
 compactContains _ _ = False
 
@@ -103,21 +101,16 @@ addrIsNull :: Addr# -> Bool
 addrIsNull addr = isTrue# (nullAddr# `eqAddr#` addr)
 
 compactResize :: Compact a -> Word -> IO ()
-compactResize (LargeCompact oldBuffer _) (W# new_size) =
+compactResize (Compact oldBuffer _) (W# new_size) =
   IO (\s -> case compactResize# oldBuffer new_size s of
          (# s' #) -> (# s', () #) )
-compactResize (SmallCompact _) _ =
-  return ()
-
-compactNewSmall :: a -> IO (Compact a)
-compactNewSmall root = return $ SmallCompact root
 
 compactAppendEvaledInternal :: Compact# -> a -> Int# -> State# RealWorld ->
                                (# State# RealWorld, Compact a #)
 compactAppendEvaledInternal buffer root share s =
   case compactAppend# buffer root share s of
     (# s', rootAddr #) -> case addrToAny# rootAddr of
-      (# adjustedRoot #) ->  (# s', LargeCompact buffer adjustedRoot #)
+      (# adjustedRoot #) ->  (# s', Compact buffer adjustedRoot #)
 
 data SerializedCompact a = SerializedCompact {
   serializedCompactGetBlockList :: [(Ptr a, Word)],
@@ -143,7 +136,7 @@ mkBlockList buffer = go (compactGetFirstBlock# buffer)
 -- buffers/sockets/whatever
 {-# NOINLINE withCompactPtrsInternal #-}
 withCompactPtrsInternal :: NFData c => Compact a -> (SerializedCompact a -> IO c) -> IO c
-withCompactPtrsInternal c@(LargeCompact buffer root) func = do
+withCompactPtrsInternal c@(Compact buffer root) func = do
   let serialized = case anyToAddr# root of
         (# rootAddr #) -> SerializedCompact (mkBlockList buffer) (Ptr rootAddr)
   -- we must be strict, to avoid smart uses of ByteStrict.Lazy that return
@@ -152,7 +145,6 @@ withCompactPtrsInternal c@(LargeCompact buffer root) func = do
   !r <- fmap force $ func serialized
   IO (\s -> case touch# buffer s of
          s' -> (# s', r #) )
-withCompactPtrsInternal (SmallCompact _) _ = undefined
 
 fixupPointers :: Addr# -> Addr# -> State# RealWorld -> (# State# RealWorld, Maybe (Compact a) #)
 fixupPointers firstBlock rootAddr s =
@@ -160,7 +152,7 @@ fixupPointers firstBlock rootAddr s =
     (# s', buffer, adjustedRoot #) ->
       if addrIsNull adjustedRoot then (# s', Nothing #)
       else case addrToAny# adjustedRoot of
-        (# root #) -> (# s', Just $ LargeCompact buffer root #)
+        (# root #) -> (# s', Just $ Compact buffer root #)
 
 compactImportInternal :: SerializedCompact a -> (Ptr b -> Word -> IO ()) -> IO (Maybe (Compact a))
 
