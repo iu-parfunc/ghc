@@ -186,8 +186,8 @@ And therefore we need to do everything with State# explicitly.
 
 -- just do shut up GHC
 compactImportInternal (SerializedCompact [] _) _ = return Nothing
-compactImportInternal (SerializedCompact ((_, W# firstSize):otherBlocks) (Ptr rootAddr)) filler =
-  IO (\s0 -> case compactAllocateBlock# firstSize nullAddr# s0 of
+compactImportInternal (SerializedCompact ((Ptr firstAddr, W# firstSize):otherBlocks) (Ptr rootAddr)) filler =
+  IO (\s0 -> case compactAllocateBlockAt# firstAddr firstSize nullAddr# s0 of
          (# s1, firstBlock #) ->
            case fillBlock firstBlock firstSize s1 of
              (# s2 #) ->
@@ -206,8 +206,8 @@ compactImportInternal (SerializedCompact ((_, W# firstSize):otherBlocks) (Ptr ro
 
     go :: Addr# -> [(Ptr a, Word)] -> State# RealWorld -> (# State# RealWorld #)
     go _ [] s = (# s #)
-    go previous ((_, W# size):rest) s =
-      case compactAllocateBlock# size previous s of
+    go previous ((Ptr addr, W# size):rest) s =
+      case compactAllocateBlockAt# addr size previous s of
         (# s', block #) -> case fillBlock block size s' of
           (# s'' #) -> go block rest s''
 

@@ -2419,7 +2419,7 @@ section "Compact normal form"
 primtype Compact#
 
 primop  CompactNewOp "compactNew#" GenPrimOp
-   Word# -> State# RealWorld -> (# State# RealWorld, Compact# #)
+   Word# -> Addr# -> State# RealWorld -> (# State# RealWorld, Compact# #)
    with
    has_side_effects = True
    out_of_line      = True
@@ -2457,8 +2457,8 @@ primop  CompactGetNextBlockOp "compactGetNextBlock#" GenPrimOp
    with
    out_of_line      = True
 
-primop  CompactAllocateBlockOp "compactAllocateBlock#" GenPrimOp
-   Word# -> Addr# -> State# RealWorld -> (# State# RealWorld, Addr# #)
+primop  CompactAllocateBlockAtOp "compactAllocateBlockAt#" GenPrimOp
+   Addr# -> Word# -> Addr# -> State# RealWorld -> (# State# RealWorld, Addr# #)
    with
    has_side_effects = True
    out_of_line      = True

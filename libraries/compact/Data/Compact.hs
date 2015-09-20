@@ -32,7 +32,9 @@ module Data.Compact (
   isCompact,
 
   newCompact,
+  newCompactAt,
   newCompactNoShare,
+  newCompactNoShareAt,
   appendCompact,
   appendNoShare,
 
@@ -99,6 +101,12 @@ newCompact = compactNewInternal 1#
 
 newCompactNoShare :: NFData a => Word -> a -> IO (Compact a)
 newCompactNoShare = compactNewInternal 0#
+
+compactNewAt :: NFData a => Word -> Ptr b -> a -> IO (Compact a)
+compactNewAt size (Ptr addr_hint) = compactNewInternal 1# addr_hint size
+
+compactNewNoShareAt :: NFData a => Word -> Ptr b -> a -> IO (Compact a)
+compactNewNoShareAt size (Ptr addr_hint) = compactNewInternal 0# addr_hint size
 
 withCompactPtrs :: Compact a -> (SerializedCompact a -> IO c) -> IO c
 withCompactPtrs = withCompactPtrsInternal
