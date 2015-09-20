@@ -33,9 +33,6 @@ void              compactFree  (StgCompactNFData *str);
 void              compactMarkKnown(StgCompactNFData *str);
 StgWord           compactContains(StgCompactNFData *str,
                                   StgPtr            what);
-void              compactInitForSymbols(StgCompactNFData *str);
-void              compactBuildSymbolTable(Capability       *cap,
-                                          StgCompactNFData *str);
 
 StgWord           countCompactBlocks(bdescr *outer);
 
@@ -44,8 +41,7 @@ StgCompactNFDataBlock *compactAllocateBlockAt(Capability            *cap,
                                               StgWord                size,
                                               StgCompactNFDataBlock *previous);
 StgPtr                 compactFixupPointers  (StgCompactNFData      *str,
-                                              StgClosure            *root,
-                                              StgInt                 trust_info_tables);
+                                              StgClosure            *root);
 
 INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure);
 INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure)

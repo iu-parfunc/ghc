@@ -45,9 +45,6 @@ module Data.Compact.Imp(
   compactImportTrusted,
   compactImportByteStrings,
   compactImportByteStringsTrusted,
-
-  compactInitForSymbols,
-  compactBuildSymbolTable,
 ) where
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
@@ -60,9 +57,6 @@ import GHC.Prim (Compact#,
                  compactGetNextBlock#,
                  compactAllocateBlockAt#,
                  compactFixupPointers#,
-                 compactInitForSymbols#,
-                 compactBuildSymbolTable#,
-                 compactWillHaveSymbols#,
                  touch#,
                  Addr#,
                  nullAddr#,
@@ -142,10 +136,6 @@ mkBlockList buffer = go (compactGetFirstBlock# buffer)
     mkBlock :: Addr# -> Word# -> (Ptr a, Word)
     mkBlock block size = (Ptr block, W# size)
 
-compactWillHaveSymbols :: Compact# -> Bool
-compactWillHaveSymbols buffer =
-  isTrue# (compactWillHaveSymbols# buffer)
-
 -- We MUST mark withCompactPtrsInternal as NOINLINE
 -- Otherwise the compiler will eliminate the call to touch#
 -- causing the Compact# to be potentially GCed too eagerly,
@@ -154,7 +144,6 @@ compactWillHaveSymbols buffer =
 {-# NOINLINE withCompactPtrsInternal #-}
 withCompactPtrsInternal :: NFData c => Compact a -> (SerializedCompact a -> IO c) -> IO c
 withCompactPtrsInternal c@(LargeCompact buffer root) func = do
-  when (compactWillHaveSymbols buffer) (compactBuildSymbolTable c)
   let serialized = case anyToAddr# root of
         (# rootAddr #) -> SerializedCompact (mkBlockList buffer) (Ptr rootAddr)
   -- we must be strict, to avoid smart uses of ByteStrict.Lazy that return
@@ -165,15 +154,15 @@ withCompactPtrsInternal c@(LargeCompact buffer root) func = do
          s' -> (# s', r #) )
 withCompactPtrsInternal (SmallCompact _) _ = undefined
 
-fixupPointers :: Int# -> Addr# -> Addr# -> State# RealWorld -> (# State# RealWorld, Maybe (Compact a) #)
-fixupPointers trust firstBlock rootAddr s =
-  case compactFixupPointers# firstBlock rootAddr trust s of
+fixupPointers :: Addr# -> Addr# -> State# RealWorld -> (# State# RealWorld, Maybe (Compact a) #)
+fixupPointers firstBlock rootAddr s =
+  case compactFixupPointers# firstBlock rootAddr s of
     (# s', buffer, adjustedRoot #) ->
       if addrIsNull adjustedRoot then (# s', Nothing #)
       else case addrToAny# adjustedRoot of
         (# root #) -> (# s', Just $ LargeCompact buffer root #)
 
-compactImportInternal :: Int# -> SerializedCompact a -> (Ptr b -> Word -> IO ()) -> IO (Maybe (Compact a))
+compactImportInternal :: SerializedCompact a -> (Ptr b -> Word -> IO ()) -> IO (Maybe (Compact a))
 
 -- what we would like is
 {-
@@ -204,8 +193,8 @@ And therefore we need to do everything with State# explicitly.
 -}
 
 -- just do shut up GHC
-compactImportInternal _ (SerializedCompact [] _) _ = return Nothing
-compactImportInternal trust (SerializedCompact ((Ptr firstAddr, W# firstSize):otherBlocks) (Ptr rootAddr)) filler =
+compactImportInternal (SerializedCompact [] _) _ = return Nothing
+compactImportInternal (SerializedCompact ((Ptr firstAddr, W# firstSize):otherBlocks) (Ptr rootAddr)) filler =
   IO (\s0 -> case compactAllocateBlockAt# firstAddr firstSize nullAddr# s0 of
          (# s1, firstBlock #) ->
            case fillBlock firstBlock firstSize s1 of
@@ -231,10 +220,10 @@ compactImportInternal trust (SerializedCompact ((Ptr firstAddr, W# firstSize):ot
           (# s'' #) -> go block rest s''
 
 compactImport :: SerializedCompact a -> (Ptr b -> Word -> IO ()) -> IO (Maybe (Compact a))
-compactImport = compactImportInternal 0#
+compactImport = compactImportInternal
 
 compactImportTrusted :: SerializedCompact a -> (Ptr b -> Word -> IO ()) -> IO (Maybe (Compact a))
-compactImportTrusted = compactImportInternal 1#
+compactImportTrusted = compactImportInternal
 
 sanityCheckByteStrings :: SerializedCompact a -> [ByteString.ByteString] -> Bool
 sanityCheckByteStrings (SerializedCompact scl _) bsl = go scl bsl
@@ -245,9 +234,9 @@ sanityCheckByteStrings (SerializedCompact scl _) bsl = go scl bsl
     go ((_, size):scs) (bs:bss) =
       fromIntegral size == ByteString.length bs && go scs bss
 
-compactImportByteStringsInternal :: Int# -> SerializedCompact a -> [ByteString.ByteString] ->
+compactImportByteStringsInternal :: SerializedCompact a -> [ByteString.ByteString] ->
                                     IO (Maybe (Compact a))
-compactImportByteStringsInternal trust serialized stringList =
+compactImportByteStringsInternal serialized stringList =
   -- sanity check stringList first - if we throw an exception later we leak
   -- memory!
   if not (sanityCheckByteStrings serialized stringList) then
@@ -262,24 +251,13 @@ compactImportByteStringsInternal trust serialized stringList =
           withForeignPtr fp $ \from -> do
             copyBytes to (from `plusPtr` off) (fromIntegral size)
           writeIORef state rest
-    compactImportInternal trust serialized filler
+    compactImportInternal serialized filler
 
 compactImportByteStrings :: SerializedCompact a -> [ByteString.ByteString] ->
                             IO (Maybe (Compact a))
-compactImportByteStrings = compactImportByteStringsInternal 0#
+compactImportByteStrings = compactImportByteStringsInternal
 
 compactImportByteStringsTrusted :: SerializedCompact a -> [ByteString.ByteString] ->
                                    IO (Maybe (Compact a))
-compactImportByteStringsTrusted = compactImportByteStringsInternal 1#
+compactImportByteStringsTrusted = compactImportByteStringsInternal
 
-compactInitForSymbols :: Compact a -> IO ()
-compactInitForSymbols (SmallCompact _) = return ()
-compactInitForSymbols (LargeCompact buffer _) =
-  IO (\s -> case compactInitForSymbols# buffer s of
-         (# s' #) -> (# s', () #) )
-
-compactBuildSymbolTable :: Compact a -> IO ()
-compactBuildSymbolTable (SmallCompact _) = return ()
-compactBuildSymbolTable (LargeCompact buffer _) =
-  IO (\s -> case compactBuildSymbolTable# buffer s of
-         (# s' #) -> (# s', () #) )
