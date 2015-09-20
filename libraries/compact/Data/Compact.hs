@@ -27,22 +27,19 @@
 -- /Since: 1.0.0/
 module Data.Compact (
   Compact,
-  compactGetRoot,
-  compactContains,
-  compactContainsAny,
+  getCompact,
+  inCompact,
+  isCompact,
 
-  compactNew,
-  compactNewNoShare,
-  compactAppend,
-  compactAppendNoShare,
-  compactResize,
+  newCompact,
+  newCompactNoShare,
+  appendCompact,
+  appendNoShare,
 
   SerializedCompact(..),
   withCompactPtrs,
-  compactImport,
-  compactImportTrusted,
-  compactImportByteStrings,
-  compactImportByteStringsTrusted,
+  importCompact,
+  importCompactByteStrings,
   ) where
 
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
@@ -64,16 +61,17 @@ import Control.DeepSeq (NFData, force)
 
 import Data.Compact.Imp(Compact(..),
                         compactGetRoot,
-                        compactResize,
                         compactContains,
                         compactContainsAny,
                         compactAppendEvaledInternal,
                         SerializedCompact(..),
                         withCompactPtrsInternal,
                         compactImport,
-                        compactImportTrusted,
-                        compactImportByteStrings,
-                        compactImportByteStringsTrusted)
+                        compactImportByteStrings)
+
+getCompact = compactGetRoot
+inCompact = compactContains
+isCompact = compactContainsAny
 
 compactAppendInternal :: NFData a => Compact# -> a -> Int# -> State# RealWorld ->
                         (# State# RealWorld, Compact a #)
@@ -85,22 +83,25 @@ compactAppendInternalIO :: NFData a => Int# -> Compact b -> a -> IO (Compact a)
 compactAppendInternalIO share (Compact buffer _) root =
   IO (\s -> compactAppendInternal buffer root share s)
 
-compactAppend :: NFData a => Compact b -> a -> IO (Compact a)
-compactAppend = compactAppendInternalIO 1#
+appendCompact :: NFData a => Compact b -> a -> IO (Compact a)
+appendCompact = compactAppendInternalIO 1#
 
-compactAppendNoShare :: NFData a => Compact b -> a -> IO (Compact a)
-compactAppendNoShare = compactAppendInternalIO 0#
+appendCompactNoShare :: NFData a => Compact b -> a -> IO (Compact a)
+appendCompactNoShare = compactAppendInternalIO 0#
 
 compactNewInternal :: NFData a => Int# -> Addr# -> Word -> a -> IO (Compact a)
-compactNewInternal share addr_hint (W# size) root =
-  IO (\s -> case compactNew# size addr_hint s of
+compactNewInternal share (W# size) root =
+  IO (\s -> case compactNew# size s of
          (# s', buffer #) -> compactAppendInternal buffer root share s' )
 
-compactNew :: NFData a => Word -> a -> IO (Compact a)
-compactNew = compactNewInternal 1# nullAddr#
+newCompact :: NFData a => Word -> a -> IO (Compact a)
+newCompact = compactNewInternal 1#
 
-compactNewNoShare :: NFData a => Word -> a -> IO (Compact a)
-compactNewNoShare = compactNewInternal 0# nullAddr#
+newCompactNoShare :: NFData a => Word -> a -> IO (Compact a)
+newCompactNoShare = compactNewInternal 0#
 
 withCompactPtrs :: Compact a -> (SerializedCompact a -> IO c) -> IO c
 withCompactPtrs = withCompactPtrsInternal
+
+importCompact = compactImport
+importCompactByteStrings = compactImportByteStrings
