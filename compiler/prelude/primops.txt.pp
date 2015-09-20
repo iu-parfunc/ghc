@@ -2464,7 +2464,7 @@ primop  CompactAllocateBlockAtOp "compactAllocateBlockAt#" GenPrimOp
    out_of_line      = True
 
 primop  CompactFixupPointersOp "compactFixupPointers#" GenPrimOp
-   Addr# -> Addr# -> Int# -> State# RealWorld -> (# State# RealWorld, Compact#, Addr# #)
+   Addr# -> Addr# -> State# RealWorld -> (# State# RealWorld, Compact#, Addr# #)
    with
    has_side_effects = True
    out_of_line      = True
