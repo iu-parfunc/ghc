@@ -306,10 +306,10 @@ evacuate_large(StgPtr p)
   bd->flags |= BF_EVACUATED;
   initBdescr(bd, new_gen, new_gen->to);
 
-  // If this is a block of pinned or struct objects, we don't have to scan
+  // If this is a block of pinned or compact objects, we don't have to scan
   // these objects, because they aren't allowed to contain any outgoing
-  // pointers.  For these blocks, we skip the scavenge stage and put
-  // them straight on the scavenged_large_objects list.
+  // pointers. For these blocks, we skip the scavenge stage and put them
+  // straight on the scavenged_large_objects list.
   if (bd->flags & BF_PINNED) {
       ASSERT(get_itbl((StgClosure *)p)->type == ARR_WORDS);
 

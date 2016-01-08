@@ -648,7 +648,7 @@ mkStableNamePrimTy ty = TyConApp stableNamePrimTyCon [ty]
 {-
 ************************************************************************
 *                                                                      *
-\subsection[TysPrim-nfdata-struct]{The NFData Struct type}
+\subsection[TysPrim-compact]{The compact type}
 *                                                                      *
 ************************************************************************
 -}

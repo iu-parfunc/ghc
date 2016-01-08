@@ -81,6 +81,13 @@ import Foreign.ForeignPtr(withForeignPtr)
 import Foreign.Marshal.Utils(copyBytes)
 import Control.DeepSeq(NFData, force)
 
+-- | A Compact contains fully evaluated, pure, and immutable data. If
+-- any object in the compact is alive, then the whole compact is
+-- alive. This means that Compacts are very cheap to keep around,
+-- because the data inside a compact does not need to be traversed by
+-- the garbage collector. However, the tradeoff is that the memory
+-- that contains a Compact cannot be recovered until the whole Compact
+-- is garbage.
 data Compact a = Compact Compact# a
 
 -- | 'compactGetRoot': retrieve the object that was stored in a Compact

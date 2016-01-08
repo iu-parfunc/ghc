@@ -14,15 +14,8 @@
 -- Stability   :  unstable
 -- Portability :  non-portable (GHC Extensions)
 --
--- This module provides a data structure, called a Compact, for holding
--- a set of fully evaluated Haskell values in a consecutive block of
--- memory.
---
--- As the data fully evaluated and pure (thus immutable), it maintains
--- the invariant that no memory reference exist from objects inside the
--- Compact to objects outside, thus allowing very fast garbage collection
--- (at the expense of increased memory usage, because the entire set of
--- object is kept alive if any object is alive).
+-- This module provides a data structure, called a Compact, for
+-- holding fully evaluated data in a consecutive block of memory.
 --
 -- /Since: 1.0.0/
 module Data.Compact (
