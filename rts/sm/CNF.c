@@ -601,6 +601,19 @@ simple_scavenge_mut_arr_ptrs (Capability       *cap,
 }
 
 static void
+simple_scavenge_mut_var (Capability       *cap,
+                         StgCompactNFData *str,
+                         HashTable        *hash,
+                         StgMutVar        *a)
+{
+    StgPtr p;
+
+    p = (StgPtr)&a->var;
+
+    simple_evacuate(cap, str, hash, (StgClosure**)p);
+}
+
+static void
 simple_scavenge_block (Capability            *cap,
                        StgCompactNFData      *str,
                        StgCompactNFDataBlock *block,
@@ -648,6 +661,8 @@ simple_scavenge_block (Capability            *cap,
             p += arr_words_sizeW((StgArrBytes*)p);
             break;
 
+        case MUT_ARR_PTRS_CLEAN:
+        case MUT_ARR_PTRS_DIRTY:
         case MUT_ARR_PTRS_FROZEN:
         case MUT_ARR_PTRS_FROZEN0:
             simple_scavenge_mut_arr_ptrs(cap, str, hash, (StgMutArrPtrs*)p);
@@ -666,6 +681,12 @@ simple_scavenge_block (Capability            *cap,
             p += sizeofW(StgSmallMutArrPtrs) + arr->ptrs;
             break;
         }
+
+        case MUT_VAR_CLEAN:
+        case MUT_VAR_DIRTY:
+            simple_scavenge_mut_var(cap, str, hash, (StgMutVar *)p);
+            p += sizeofW(StgMutVar);
+            break;
 
         case IND:
         case BLACKHOLE:
