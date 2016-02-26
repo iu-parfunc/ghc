@@ -37,26 +37,13 @@ import GHC.Prim (Compact#,
                  compactResize#,
                  compactContains#,
                  compactContainsAny#,
-                 compactGetFirstBlock#,
-                 compactGetNextBlock#,
-                 compactAllocateBlock#,
-                 compactFixupPointers#,
-                 touch#,
-                 Addr#,
-                 nullAddr#,
-                 eqAddr#,
-                 addrToAny#,
-                 anyToAddr#,
                  State#,
                  RealWorld,
                  Int#,
-                 Word#,
                  )
 -- We need to import Word from GHC.Types to see the representation
 -- and to able to access the Word# to pass down the primops
 import GHC.Types (IO(..), Word(..), isTrue#)
-
-import GHC.Ptr (Ptr(..), plusPtr)
 
 -- | A 'Compact' contains fully evaluated, pure, and immutable data. If
 -- any object in the compact is alive, then the whole compact is
