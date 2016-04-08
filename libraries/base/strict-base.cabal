@@ -1,4 +1,4 @@
-name:           base
+name:           strict-base
 version:        4.8.2.0
 -- NOTE: Don't forget to update ./changelog.md
 license:        BSD3
@@ -99,7 +99,8 @@ Library
         UnliftedFFITypes
         Unsafe
 
-    build-depends: rts == 1.0.*, ghc-prim == 0.4.*
+    build-depends: ghc-prim == 0.4.*
+--               , rts == 1.0.*
     if flag(integer-simple)
         build-depends: integer-simple >= 0.1.1 && < 0.2
 
