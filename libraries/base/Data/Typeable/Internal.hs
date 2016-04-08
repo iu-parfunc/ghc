@@ -343,8 +343,6 @@ typeLitTypeRep nm = rep
            , tyConModule   = modu
            , tyConName     = nm
            }
-    pack = "base"
+    pack = "strict-base"
     modu = "GHC.TypeLits"
     mk a b c = a ++ " " ++ b ++ " " ++ c
-
-
