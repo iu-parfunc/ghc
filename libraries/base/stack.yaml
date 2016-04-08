@@ -1,3 +1,5 @@
+# NOTE: Must run autoconf and autoheader BEFORE invoking stack.
+# ============================================================
 
 # Specifies the GHC version and set of packages available (e.g., lts-3.5, nightly-2015-09-21, ghc-7.10.2)
 resolver: lts-5.11
@@ -8,10 +10,13 @@ packages:
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps: []
+# RRN: What's the status of this package?
 #  - rts-1.0
 
 # Override default flag values for local packages and extra-deps
-flags: {}
+flags:
+  strict-base:
+    integer-gmp2: true
 
 # Extra package databases containing global packages
 extra-package-dbs: []
@@ -28,6 +33,7 @@ extra-package-dbs: []
 # arch: x86_64
 
 # Extra directories used by stack for building
+# extra-include-dirs: [ ]
 extra-include-dirs: [ ./include ]
 # extra-lib-dirs: [/path/to/dir]
 
