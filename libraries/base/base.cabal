@@ -149,6 +149,7 @@ Library
         Data.Functor
         Data.Functor.Identity
         Data.IORef
+        Data.IORef.Unsafe
         Data.Int
         Data.Ix
         Data.List
@@ -301,6 +302,7 @@ Library
         Data.OldList
         Foreign.ForeignPtr.Imp
         System.Environment.ExecutablePath
+        Data.IORef.IORef
 
     c-sources:
         cbits/DarwinUtils.c
