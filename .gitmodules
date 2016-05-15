@@ -55,10 +55,6 @@
 	path = libraries/random
 	url = ../packages/random.git
 	ignore = untracked
-[submodule "libraries/array"]
-	path = libraries/array
-	url = ../packages/array.git
-	ignore = none
 [submodule "libraries/deepseq"]
 	path = libraries/deepseq
 	url = ../packages/deepseq.git
