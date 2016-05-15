@@ -69,9 +69,22 @@ readIOArray (IOArray marr) i = stToIO (readSTArray marr i)
 
 -- | Write a new value into an 'IOArray'
 writeIOArray :: Ix i => IOArray i e -> i -> e -> IO ()
-writeIOArray (IOArray marr) i e = stToIO (writeSTArray marr i e)
+writeIOArray (IOArray marr) i e = stToIO (writeSTArray marr i e) >> storeLoadBarrier
 
 {-# INLINE boundsIOArray #-}
 boundsIOArray :: IOArray i e -> (i,i)
 boundsIOArray (IOArray marr) = boundsSTArray marr
 
+
+
+-- | Memory barrier implemented by the GHC rts (see SMP.h).
+foreign import ccall  unsafe "store_load_barrier" storeLoadBarrier
+  :: IO ()
+
+-- | Memory barrier implemented by the GHC rts (see SMP.h).
+foreign import ccall unsafe "load_load_barrier" loadLoadBarrier
+  :: IO ()
+
+-- | Memory barrier implemented by the GHC rts (see SMP.h).
+foreign import ccall unsafe "write_barrier" writeBarrier
+  :: IO ()

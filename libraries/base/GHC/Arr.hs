@@ -53,6 +53,11 @@ infixl 9  !, //
 
 default ()
 
+
+
+safeWriteArray :: MutableArray# s a -> Int# -> a -> State# s -> State# s
+safeWriteArray = undefined
+
 -- | The 'Ix' class is used to map a contiguous subrange of values in
 -- a type onto integers.  It is used primarily for array indexing
 -- (see the array package).
