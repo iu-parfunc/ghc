@@ -780,6 +780,8 @@ emitPrimOp dflags [] AtomicWriteByteArrayOp_Int [mba, ix, val] =
     doAtomicWriteByteArray mba ix (bWord dflags) val
 emitPrimOp dflags [res] CasByteArrayOp_Int [mba, ix, old, new] =
     doCasByteArray res mba ix (bWord dflags) old new
+emitPrimOp _ [] MemoryBarrier_StoreLoad [] =
+    emitPrimCall [] MO_StoreLoadBarrier []
 
 -- The rest just translate straightforwardly
 emitPrimOp dflags [res] op [arg]
