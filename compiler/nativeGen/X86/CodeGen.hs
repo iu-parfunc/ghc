@@ -1738,6 +1738,14 @@ genCCall dflags _ (PrimTarget MO_Memset) _
         dst_addr = AddrBaseIndex (EABaseReg dst) EAIndexNone
                    (ImmInteger (n - i))
 
+genCCall _ is32bit (PrimTarget MO_StoreLoadBarrier) _ _ = do
+    return $ toOL [ LOCK (ADD (if is32bit then II32 else II64) (OpImm (ImmInt 0))
+                          (OpAddr (AddrBaseIndex
+                                   (EABaseReg (if is32bit then esp else rsp))
+                                   EAIndexNone
+                                   (ImmInt 0))))
+                  ]
+        
 genCCall _ _ (PrimTarget MO_WriteBarrier) _ _ = return nilOL
         -- write barrier compiles to no code on x86/x86-64;
         -- we keep it this long in order to prevent earlier optimisations.
@@ -2575,6 +2583,7 @@ outOfLineCmmOp mop res args
               MO_AddIntC {}    -> unsupported
               MO_SubIntC {}    -> unsupported
               MO_U_Mul2 {}     -> unsupported
+              MO_StoreLoadBarrier -> unsupported
               MO_WriteBarrier  -> unsupported
               MO_Touch         -> unsupported
               (MO_Prefetch_Data _ ) -> unsupported

@@ -976,6 +976,7 @@ machOps = listToUFM $
 
 callishMachOps = listToUFM $
         map (\(x, y) -> (mkFastString x, y)) [
+        ( "store_load_barrier", MO_StoreLoadBarrier ),
         ( "write_barrier", MO_WriteBarrier ),
         ( "memcpy", MO_Memcpy ),
         ( "memset", MO_Memset ),

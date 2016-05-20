@@ -1420,6 +1420,13 @@ primop  SetByteArrayOp "setByteArray#" GenPrimOp
   code_size = { primOpCodeSizeForeignCall + 4 }
   can_fail = True
 
+primop MemoryBarrier_StoreLoad "storeLoadBarrier#" GenPrimOp
+  State# s -> State# s
+  {Issue a barrier that prevents future loads from floating before 
+   stores. See store_load_barrier in SMP.h}
+  with has_side_effects = True
+       can_fail         = False
+
 -- Atomic operations
 
 primop  AtomicReadByteArrayOp_Int "atomicReadIntArray#" GenPrimOp
