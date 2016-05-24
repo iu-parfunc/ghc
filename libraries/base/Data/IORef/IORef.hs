@@ -1,5 +1,5 @@
 {-# LANGUAGE Trustworthy #-} -- is it?
-{-# LANGUAGE CPP, NoImplicitPrelude #-}
+{-# LANGUAGE CPP, NoImplicitPrelude, MagicHash, UnboxedTuples #-}
 
 module Data.IORef.IORef
     (
@@ -33,19 +33,17 @@ import Data.IORef.Unsafe (IORef(..), newIORef, readIORef,
 import qualified Data.IORef.Unsafe as U
 
 
--- Are we going to provide alternate, safer implementations of these?
 modifyIORef :: IORef a -> (a -> a) -> IO ()
-modifyIORef a f = do
-  atomicModifyIORef a (\x -> (f x, ()))
-  return ()
+modifyIORef a f = U.modifyIORef a f >> storeLoadBarrier
+  -- atomicModifyIORef a (\x -> (f x, ()))
 -- modifyIORef = U.modifyIORef
 modifyIORef' :: IORef a -> (a -> a) -> IO ()
-modifyIORef' a f = do
-  atomicModifyIORef' a (\x -> (f x, ()))
-  return ()                
+modifyIORef' a f = U.modifyIORef' a f >> storeLoadBarrier
+  -- atomicModifyIORef' a (\x -> (f x, ()))
 -- modifyIORef' = U.modifyIORef'
 writeIORef  :: IORef a -> a -> IO ()
-writeIORef = U.atomicWriteIORef
+writeIORef a v = U.writeIORef a v >> storeLoadBarrier
+-- writeIORef = U.atomicWriteIORef
 {-# INLINE modifyIORef #-}
 {-# INLINE modifyIORef' #-}
 {-# INLINE writeIORef #-}
@@ -54,4 +52,10 @@ writeIORef = U.atomicWriteIORef
 mkWeakIORef :: IORef a -> IO () -> IO (Weak (IORef a))
 mkWeakIORef = U.mkWeakIORef
 #endif
+
+{-# INLINE storeLoadBarrier #-}
+storeLoadBarrier :: IO ()
+storeLoadBarrier = IO $ \s1# ->
+  case storeLoadBarrier# s1# of
+    s2# -> (# s2#, () #)
 

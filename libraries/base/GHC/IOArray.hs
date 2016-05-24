@@ -1,5 +1,6 @@
 {-# LANGUAGE Unsafe #-}
 {-# LANGUAGE NoImplicitPrelude, AutoDeriveTypeable, RoleAnnotations #-}
+{-# LANGUAGE MagicHash, UnboxedTuples #-}
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 {-# OPTIONS_HADDOCK hide #-}
 
@@ -75,16 +76,8 @@ writeIOArray (IOArray marr) i e = stToIO (writeSTArray marr i e) >> storeLoadBar
 boundsIOArray :: IOArray i e -> (i,i)
 boundsIOArray (IOArray marr) = boundsSTArray marr
 
-
-
--- | Memory barrier implemented by the GHC rts (see SMP.h).
-foreign import ccall  unsafe "store_load_barrier" storeLoadBarrier
-  :: IO ()
-
--- | Memory barrier implemented by the GHC rts (see SMP.h).
-foreign import ccall unsafe "load_load_barrier" loadLoadBarrier
-  :: IO ()
-
--- | Memory barrier implemented by the GHC rts (see SMP.h).
-foreign import ccall unsafe "write_barrier" writeBarrier
-  :: IO ()
+{-# INLINE storeLoadBarrier #-}
+storeLoadBarrier :: IO ()
+storeLoadBarrier = IO $ \s1# ->
+  case storeLoadBarrier# s1# of
+    s2# -> (# s2#, () #)
