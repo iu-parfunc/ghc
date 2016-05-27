@@ -41,7 +41,7 @@
 	ignore = untracked
 [submodule "libraries/primitive"]
 	path = libraries/primitive
-	url = ../packages/primitive.git
+	url = https://github.com/vollmerm/primitive.git
 	ignore = untracked
 [submodule "libraries/vector"]
 	path = libraries/vector
@@ -57,7 +57,7 @@
 	ignore = untracked
 [submodule "libraries/array"]
 	path = libraries/array
-	url = ../packages/array.git
+	url = https://github.com/vollmerm/packages-array.git
 	ignore = none
 [submodule "libraries/deepseq"]
 	path = libraries/deepseq
