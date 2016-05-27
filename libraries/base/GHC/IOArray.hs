@@ -26,6 +26,7 @@ module GHC.IOArray (
     ) where
 
 import GHC.Base
+import GHC.Barrier
 import GHC.IO
 import GHC.Arr
 import Data.Typeable.Internal
@@ -70,14 +71,8 @@ readIOArray (IOArray marr) i = stToIO (readSTArray marr i)
 
 -- | Write a new value into an 'IOArray'
 writeIOArray :: Ix i => IOArray i e -> i -> e -> IO ()
-writeIOArray (IOArray marr) i e = stToIO (writeSTArray marr i e) >> storeLoadBarrier
+writeIOArray (IOArray marr) i e = stToIO (writeSTArray marr i e) >> _storeLoadBarrier
 
 {-# INLINE boundsIOArray #-}
 boundsIOArray :: IOArray i e -> (i,i)
 boundsIOArray (IOArray marr) = boundsSTArray marr
-
-{-# INLINE storeLoadBarrier #-}
-storeLoadBarrier :: IO ()
-storeLoadBarrier = IO $ \s1# ->
-  case storeLoadBarrier# s1# of
-    s2# -> (# s2#, () #)
