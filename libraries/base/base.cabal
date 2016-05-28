@@ -197,6 +197,7 @@ Library
         Foreign.Storable
         GHC.Arr
         GHC.Base
+        GHC.Barrier
         GHC.Char
         GHC.Conc
         GHC.Conc.IO
