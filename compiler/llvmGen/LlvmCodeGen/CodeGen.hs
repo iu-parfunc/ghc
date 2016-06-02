@@ -175,6 +175,10 @@ oldBarrier = do
 genCall :: ForeignTarget -> [CmmFormal] -> [CmmActual]
               -> LlvmM StmtData
 
+-- 'barrier' appears to use LLVM's fence with sequentially consistent ordering...
+-- is that good enough for us?
+genCCall _ _ (PrimTarget MO_StoreLoadBarrier) _ _ = barrier
+
 -- Write barrier needs to be handled specially as it is implemented as an LLVM
 -- intrinsic function.
 genCall (PrimTarget MO_WriteBarrier) _ _ = do
@@ -578,6 +582,7 @@ cmmPrimOpFunctions mop = do
     MO_AddIntC {}    -> unsupported
     MO_SubIntC {}    -> unsupported
     MO_U_Mul2 {}     -> unsupported
+    MO_StoreLoadBarrier -> unsupported
     MO_WriteBarrier  -> unsupported
     MO_Touch         -> unsupported
     MO_UF_Conv _     -> unsupported
