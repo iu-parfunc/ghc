@@ -177,7 +177,7 @@ genCall :: ForeignTarget -> [CmmFormal] -> [CmmActual]
 
 -- 'barrier' appears to use LLVM's fence with sequentially consistent ordering...
 -- is that good enough for us?
-genCCall _ _ (PrimTarget MO_StoreLoadBarrier) _ _ = barrier
+genCall (PrimTarget MO_StoreLoadBarrier) _ _ = barrier
 
 -- Write barrier needs to be handled specially as it is implemented as an LLVM
 -- intrinsic function.
