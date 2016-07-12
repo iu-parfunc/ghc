@@ -50,7 +50,7 @@ import Data.Typeable
 import System.IO.Error
 import Data.Maybe
 
-import GHC.IORef
+import Data.IORef.Unsafe
 import GHC.Base
 import GHC.Real
 import GHC.Num

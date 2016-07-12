@@ -62,7 +62,7 @@ import qualified GHC.IO.BufferedIO as Buffered
 import GHC.Base
 import GHC.Exception
 import GHC.MVar
-import GHC.IORef
+import Data.IORef.Unsafe
 import GHC.Show
 import GHC.Num
 import GHC.Real

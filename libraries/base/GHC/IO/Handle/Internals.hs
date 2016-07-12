@@ -70,7 +70,7 @@ import GHC.Base
 import GHC.Exception
 import GHC.Num          ( Num(..) )
 import GHC.Show
-import GHC.IORef
+import Data.IORef.Unsafe
 import GHC.MVar
 import Data.Typeable
 import Data.Maybe
