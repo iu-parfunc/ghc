@@ -21,6 +21,7 @@ module Data.IORef.IORef
 
 
 import GHC.Base
+import GHC.Barrier (storeLoadBarrier)
 -- import GHC.STRef
 -- import GHC.IORef hiding (atomicModifyIORef)
 -- import qualified GHC.IORef
@@ -52,10 +53,4 @@ writeIORef a v = U.writeIORef a v >> storeLoadBarrier
 mkWeakIORef :: IORef a -> IO () -> IO (Weak (IORef a))
 mkWeakIORef = U.mkWeakIORef
 #endif
-
-{-# INLINE storeLoadBarrier #-}
-storeLoadBarrier :: IO ()
-storeLoadBarrier = IO $ \s1# ->
-  case storeLoadBarrier# s1# of
-    s2# -> (# s2#, () #)
 
