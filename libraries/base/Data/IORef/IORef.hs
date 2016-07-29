@@ -21,7 +21,7 @@ module Data.IORef.IORef
 
 
 import GHC.Base
-import GHC.Barrier (storeLoadBarrier)
+import {-# SOURCE #-} GHC.Barrier (storeLoadBarrier)
 -- import GHC.STRef
 -- import GHC.IORef hiding (atomicModifyIORef)
 -- import qualified GHC.IORef
