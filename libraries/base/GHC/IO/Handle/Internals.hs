@@ -70,7 +70,9 @@ import GHC.Base
 import GHC.Exception
 import GHC.Num          ( Num(..) )
 import GHC.Show
-import GHC.IORef
+-- RRN: SAFE/SC version.  Use the same fenced IORef as everybody else:
+import Data.IORef
+-- import GHC.IORef
 import GHC.MVar
 import Data.Typeable
 import Data.Maybe
