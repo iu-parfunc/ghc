@@ -41,7 +41,9 @@ import GHC.IO
 import GHC.IO.Buffer
 import GHC.IO.BufferedIO
 import GHC.IO.Encoding.Types
-import GHC.IORef
+-- RRN: SAFE/SC version.  Use the same fenced IORef as everybody else:
+import Data.IORef
+-- import GHC.IORef
 import GHC.Show
 import GHC.Read
 import GHC.Word
