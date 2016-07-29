@@ -6,6 +6,7 @@
 
 module GHC.Barrier (
         storeLoadBarrier
+      , barrierCounts
    ) where
 
 import GHC.Base
