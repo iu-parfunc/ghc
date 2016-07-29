@@ -62,7 +62,9 @@ import qualified GHC.IO.BufferedIO as Buffered
 import GHC.Base
 import GHC.Exception
 import GHC.MVar
-import GHC.IORef
+-- RRN: SAFE/SC version.  Use the same fenced IORef as everybody else:
+import Data.IORef
+-- import GHC.IORef
 import GHC.Show
 import GHC.Num
 import GHC.Real

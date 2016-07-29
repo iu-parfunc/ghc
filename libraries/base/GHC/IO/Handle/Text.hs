@@ -50,7 +50,9 @@ import Data.Typeable
 import System.IO.Error
 import Data.Maybe
 
-import GHC.IORef
+-- RRN: SAFE/SC version.  Use the same fenced IORef as everybody else:
+import Data.IORef
+-- import GHC.IORef
 import GHC.Base
 import GHC.Real
 import GHC.Num
