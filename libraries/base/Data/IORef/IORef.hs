@@ -28,11 +28,16 @@ import {-# SOURCE #-} GHC.Barrier (storeLoadBarrier)
 #if !defined(__PARALLEL_HASKELL__)
 import GHC.Weak
 #endif
-import Data.IORef.Unsafe (IORef(..), newIORef, readIORef,
+import Data.IORef.Unsafe (IORef(..), newIORef,
                           atomicModifyIORef, atomicModifyIORef',
                           atomicWriteIORef)
 import qualified Data.IORef.Unsafe as U
 
+readIORef :: IORef a -> IO a
+readIORef a = do
+  v <- U.readIORef a
+  storeLoadBarrier
+  return v
 
 modifyIORef :: IORef a -> (a -> a) -> IO ()
 modifyIORef a f = U.modifyIORef a f >> storeLoadBarrier
@@ -48,6 +53,7 @@ writeIORef a v = U.writeIORef a v >> storeLoadBarrier
 {-# INLINE modifyIORef #-}
 {-# INLINE modifyIORef' #-}
 {-# INLINE writeIORef #-}
+{-# INLINE readIORef #-}
                    
 #if !defined(__PARALLEL_HASKELL__)
 mkWeakIORef :: IORef a -> IO () -> IO (Weak (IORef a))
